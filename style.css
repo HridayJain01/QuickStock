@@ -236,7 +236,7 @@ body.paused .clock::after { content: " ⏸ PAUSED"; color: var(--warn); font-wei
   .coPx { text-align: left; display: flex; gap: 8px; align-items: baseline; } .coPx b { font-size: 22px; } .coPx span { font-size: 14px; }
   #chart { height: 190px; margin: 6px 0; }
   #trade { padding: 8px; } .tRow { margin-bottom: 6px; gap: 4px; } .tRow button { padding: 6px 9px; } #qty { width: 72px; } .sm { width: 50px; }
-  .lev:disabled, .btns .short:disabled, .btns .cover:disabled, #coInfo { display: none; }
+  .lev:disabled, .btns .short:disabled, .btns .cover:disabled { display: none; }
   .est { font-size: 12px; margin-bottom: 6px; }
   #mobNav button { padding: 9px 2px; font-size: 14px; white-space: nowrap; }
   #toasts { top: 6px; bottom: auto; left: 8px; right: 8px; width: auto; pointer-events: none; } .toast { padding: 7px 10px; font-size: 13px; }
