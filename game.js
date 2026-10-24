@@ -583,7 +583,7 @@ function save() { S.at = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.s
 function load() { try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && s.v === 1) { S = s; buildMap(); return true; } } catch { } return false; }
 
 // ---------- cloud save (Supabase: public anon key + row-level security, see supabase.sql) ----------
-const SB_URL = '', SB_KEY = '', OWNER_KEY = 'quickstock-owner', GUEST_KEY = 'quickstock-guest';
+const SB_URL = 'https://cudqxauoekavszkjekpi.supabase.co', SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN1ZHF4YXVvZWthdnN6a2pla3BpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI4MzExMTcsImV4cCI6MjEwODQwNzExN30.MCt4AErGKNWIFdzAojMznXYN3D5rVHOITSz65FYv3Sk', OWNER_KEY = 'quickstock-owner', GUEST_KEY = 'quickstock-guest';
 const SB = SB_URL && window.supabase ? supabase.createClient(SB_URL, SB_KEY) : null;
 let user = null, cloudOk = false, pushTm = 0;
 function cloudPush() {
