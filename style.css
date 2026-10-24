@@ -223,3 +223,21 @@ body.paused .clock::after { content: " ⏸ PAUSED"; color: var(--warn); font-wei
   #breaking { top: 60px; font-size: 17px; }
   #toasts { bottom: 72px; }
 }
+/* phone: everything for a trade fits on one screen, extras hidden */
+@media (max-width: 600px) {
+  #top { padding: 6px 10px; gap: 4px 12px; }
+  #mood, .dayBar, #nwChg, #ticker, [data-act="theme"] { display: none; }
+  .hLeft, .hMid { gap: 12px; } .clock b { font-size: 15px; } #nw { font-size: 18px; } #cash { font-size: 15px; }
+  .nwBox small, .cashBox small { font-size: 9px; }
+  .hRight > button, .iconBtn { padding: 4px 3px; font-size: 14px; } .speed button { padding: 4px 7px; }
+  #headline { padding: 4px 10px; font-size: 12px; }
+  #pChart { padding: 8px 10px; }
+  .coEm { font-size: 24px; } .coTitle { gap: 8px; } .coTitle h2 { font-size: 16px; } .coTitle .muted { font-size: 12px; }
+  .coPx { text-align: left; display: flex; gap: 8px; align-items: baseline; } .coPx b { font-size: 22px; } .coPx span { font-size: 14px; }
+  #chart { height: 190px; margin: 6px 0; }
+  #trade { padding: 8px; } .tRow { margin-bottom: 6px; gap: 4px; } .tRow button { padding: 6px 9px; } #qty { width: 80px; }
+  .lev:disabled, .btns .short:disabled, .btns .cover:disabled, #coInfo { display: none; }
+  .est { font-size: 12px; margin-bottom: 6px; }
+  #mobNav button { padding: 9px 2px; font-size: 14px; white-space: nowrap; }
+  #toasts { top: 6px; bottom: auto; left: 8px; right: 8px; width: auto; pointer-events: none; } .toast { padding: 7px 10px; font-size: 13px; }
+}
