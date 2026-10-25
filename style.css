@@ -114,6 +114,7 @@ button.big { padding: 12px 6px; font-size: 16px; font-weight: 800; border-radius
 .short { background: var(--dnbg); color: var(--dn); border-color: var(--dn); }
 .cover { background: var(--upbg); color: var(--up); border-color: var(--up); }
 .posRow { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 8px 10px; margin-top: 6px; border-radius: 10px; background: var(--card); border: 1px solid var(--line2); border-left: 3px solid var(--line); }
+#tabBody .posRow { cursor: pointer; }
 .posRow.up { border-left-color: var(--up); } .posRow.dn { border-left-color: var(--dn); }
 .posRow small { display: block; } .pnl { text-align: right; } .pnl b { font-size: 15px; display: block; } .pbtn { display: flex; gap: 4px; }
 .pbtn button { padding: 5px 9px; }

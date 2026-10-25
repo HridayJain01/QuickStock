@@ -12,11 +12,11 @@ let COL = {}, rc = 0, infoSym = null, modalQ = [], modalBtns = null, lastSnd = 0
 
 // ---------- utils ----------
 const $ = s => document.querySelector(s);
-const rand = (a, b) => a + Math.random() * (b - a);
+const rand = (a, b) => a + rng() * (b - a);
 const rnd = (a, b) => Math.floor(rand(a, b + 1));
-const pick = a => a[Math.floor(Math.random() * a.length)];
+const pick = a => a[Math.floor(rng() * a.length)];
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-const gauss = () => { let u = 0; while (!u) u = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * Math.random()); };
+const gauss = () => { let u = 0; while (!u) u = rng(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * rng()); };
 const esc = s => String(s).replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 const day = () => Math.floor(S.t / TPD) + 1;
 const gNow = () => Math.floor(S.t / TPC);
@@ -25,7 +25,7 @@ function seeded(str) {
   for (let i = 0; i < str.length; i++) { h = Math.imul(h ^ str.charCodeAt(i), 3432918353); h = h << 13 | h >>> 19; }
   return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
 }
-function wpick(w) { let r = Math.random() * Object.values(w).reduce((a, b) => a + b, 0); for (const k in w) if ((r -= w[k]) < 0) return k; return Object.keys(w)[0]; }
+function wpick(w) { let r = rng() * Object.values(w).reduce((a, b) => a + b, 0); for (const k in w) if ((r -= w[k]) < 0) return k; return Object.keys(w)[0]; }
 function money(n) {
   const a = Math.abs(n), s = n < 0 ? '-' : '';
   if (a >= 1e7) return s + '₹' + (a / 1e7).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' Cr';
@@ -185,7 +185,7 @@ function exerciseOpt(id) {
 // ---------- news ----------
 function randomComp(sec, not) {
   const held = [...new Set(Object.values(S.pos).map(p => p.sym))];
-  if (!sec && held.length && Math.random() < 0.25) { const s = pick(held); if (MAP[s] !== not) return MAP[s]; }
+  if (!sec && held.length && rng() < 0.25) { const s = pick(held); if (MAP[s] !== not) return MAP[s]; }
   const L = S.comps.filter(c => (!sec || c.sec === sec) && c !== not);
   return pick(L.length ? L : S.comps);
 }
@@ -221,7 +221,7 @@ function emit(n) {
   const raw = n.hits || []; delete n.hits;
   const hits = []; let sum = 0;
   for (const [c, imp0] of raw) {
-    const imp = clamp(imp0, -0.45, 0.45), len = 6 + (Math.random() * 14 | 0), lr = Math.log(1 + imp);
+    const imp = clamp(imp0, -0.45, 0.45), len = 6 + (rng() * 14 | 0), lr = Math.log(1 + imp);
     c.pend.push([lr / len, len]);
     if (n.truth) c.fair *= 1 + imp;
     hits.push([c.sym, lr]); sum += imp;
@@ -229,11 +229,11 @@ function emit(n) {
   n.sent ??= hits.length ? sum / hits.length : 0;
   n.big ??= Math.abs(n.sent) >= 0.1 || hits.length > 20;
   pushNews(n);
-  if (!n.truth && hits.length && Math.random() < 0.75) S.sched.push({ at: S.t + rnd(40, 140), kind: 'debunk', id: n.id, hits });
+  if (!n.truth && hits.length && rng() < 0.75) S.sched.push({ at: S.t + rnd(40, 140), kind: 'debunk', id: n.id, hits });
 }
 
 function fire(tpl, srcKey, ctx = {}, forced) {
-  const src = SOURCES[srcKey], truth = forced ?? Math.random() < src.rel;
+  const src = SOURCES[srcKey], truth = forced ?? rng() < src.rel;
   let c = ctx.c;
   if (!c && tpl.fx.some(f => f[0] === 'c')) c = randomComp(ctx.sec);
   const c2 = randomComp(null, c);
@@ -250,11 +250,11 @@ function fire(tpl, srcKey, ctx = {}, forced) {
 function spawnNews() {
   const tpl = pick(NEWS);
   fire(tpl, pick(tpl.src));
-  if (Math.random() < 0.08) announceEvent();
+  if (rng() < 0.08) announceEvent();
 }
 
 function announceEvent() {
-  const isCo = Math.random() < 0.4, list = isCo ? COMPANY_EVENTS : EVENTS, i = rnd(0, list.length - 1), E = list[i];
+  const isCo = rng() < 0.4, list = isCo ? COMPANY_EVENTS : EVENTS, i = rnd(0, list.length - 1), E = list[i];
   if (S.sched.some(e => e.kind === 'event' && e.co === isCo && e.i === i)) return;
   const d = day() + rnd(1, 3), c = isCo ? randomComp(E.sec) : null, text = fill(E.a, { c, d });
   pushNews({ text, src: 'govt', truth: true, sent: 0, tags: c ? [{ sym: c.sym }] : [{ label: '📅 Event' }] });
@@ -285,7 +285,7 @@ function runSched() {
       pushNews({ text: `🚫 DEBUNKED: "${o ? o.text : 'earlier rumour'}" was FAKE NEWS`, src: 'paper', truth: true, sent: -(o?.sent || 0), tags: o?.tags || [], isDeb: true, big: Math.abs(o?.sent || 0) >= 0.1 });
     } else if (e.kind === 'tip') {
       const c = MAP[e.sym]; if (!c) continue;
-      if (e.real || Math.random() < 0.5) {
+      if (e.real || rng() < 0.5) {
         const dir = e.real ? e.dir : -e.dir;
         const tpl = pick(NEWS.filter(t => t.fx.length === 1 && t.fx[0][0] === 'c' && (dir > 0 ? t.fx[0][2] > 0 : t.fx[0][3] < 0)));
         fire(tpl, pick(tpl.src), { c }, true);
@@ -310,7 +310,7 @@ function tick() {
     const up = c.open * (1 + c.band), dn = c.open * (1 - c.band);
     if (p >= up || p <= dn) circuit(c, p >= up), p = p >= up ? up : dn;
     c.p = Math.max(0.05, p);
-    c.volu += Math.abs(r) * 2e4 * c.vol + Math.random() * 50;
+    c.volu += Math.abs(r) * 2e4 * c.vol + rng() * 50;
     const k = c.cur; k[2] = Math.max(k[2], c.p); k[3] = Math.min(k[3], c.p); k[4] = c.p;
     c.dhi = Math.max(c.dhi, c.p); c.dlo = Math.min(c.dlo, c.p);
   }
@@ -374,7 +374,7 @@ function regimeTick(d) {
   }
   if (d === R.until - 1 && !R.next) {
     R.next = wpick(REGIME_NEXT[R.k]);
-    const honest = Math.random() < 0.7, shown = honest ? R.next : pick(Object.keys(REGIMES)), G = REGIMES[shown];
+    const honest = rng() < 0.7, shown = honest ? R.next : pick(Object.keys(REGIMES)), G = REGIMES[shown];
     pushNews({ text: `🔮 Market gurus predict: ${G.em} ${G.name} coming tomorrow!`, src: 'tv', truth: honest, sent: 0, tags: [{ label: '🌐 Market mood' }] });
   }
 }
@@ -395,20 +395,20 @@ function dayStart() {
   for (const c of S.comps) {
     if (c.nextEarn === d + 1) {
       c.earnQ = clamp(gauss(), -2.2, 2.2);
-      if (Math.random() < 0.4) {
-        const honest = Math.random() < 0.75, strong = (c.earnQ > 0) === honest;
+      if (rng() < 0.4) {
+        const honest = rng() < 0.75, strong = (c.earnQ > 0) === honest;
         pushNews({ text: `🤫 Whisper: ${c.name} results tomorrow look ${strong ? 'STRONG 💪' : 'WEAK 😬'}`, src: 'paper', truth: honest, sent: strong ? 0.01 : -0.01, tags: [{ sym: c.sym }] });
       }
     }
     if (c.nextEarn === d) S.sched.push({ at: S.t + rnd(40, 270), kind: 'earn', sym: c.sym });
   }
-  if (Math.random() < 0.5) announceEvent();
+  if (rng() < 0.5) announceEvent();
   ipoTick(d);
   S.dayLog = { startNW: netWorth(), trades: [] };
   if (quiet) return;
   SND.bell();
   toast(`🔔 Day ${d}: market open! Mood: ${REGIMES[S.regime.k].em} ${REGIMES[S.regime.k].name}`, 'info');
-  if (d > 1 && Math.random() < 0.4) showCard();
+  if (d > 1 && rng() < 0.4) showCard();
 }
 
 function dayEnd(d) {
@@ -418,14 +418,14 @@ function dayEnd(d) {
     let inc = Math.round(bizBase(b) * bizMult(D, d)), note = '';
     if (D.special === 'film') {
       inc = 0; note = '🎬 Shooting in progress...';
-      if (Math.random() < 0.25) {
-        const r = Math.random();
+      if (rng() < 0.25) {
+        const r = rng();
         if (r < 0.45) { inc = Math.round(b.inv * rand(0.2, 0.6)); note = '🍿 BLOCKBUSTER HIT!'; }
         else if (r < 0.8) { inc = Math.round(b.inv * rand(0.03, 0.1)); note = '🎞️ Average release'; }
         else { inc = -Math.round(b.inv * 0.1); note = '🍅 Total FLOP'; }
       }
     } else if (D.special === 'startup') {
-      const r = Math.random();
+      const r = rng();
       if (r < 0.005) {
         const pay = Math.round(b.inv * rand(10, 40));
         S.cash += pay; S.biz.splice(S.biz.indexOf(b), 1); S.flags.exit = true;
@@ -439,7 +439,7 @@ function dayEnd(d) {
         continue;
       }
     }
-    if (D.special !== 'film' && Math.random() < 0.12) { const [t, m] = pick(BIZ_EVENTS); inc = Math.round(inc * m); note = t.replace('{b}', D.name); }
+    if (D.special !== 'film' && rng() < 0.12) { const [t, m] = pick(BIZ_EVENTS); inc = Math.round(inc * m); note = t.replace('{b}', D.name); }
     S.cash += inc; b.yday = inc; S.stats.biz += inc;
     log.push({ em: D.em, name: D.name, inc, note });
   }
@@ -464,9 +464,9 @@ function dayEnd(d) {
 // ---------- IPO / tips / cards ----------
 function ipoTick(d) {
   const I = S.ipo;
-  if (!I) { if (d >= 3 && Math.random() < 0.25) startIPO(d); return; }
+  if (!I) { if (d >= 3 && rng() < 0.25) startIPO(d); return; }
   if (d === I.open + 1) {
-    const honest = Math.random() < 0.7, shown = honest ? I.g + rand(-0.08, 0.08) : rand(-0.3, 0.8);
+    const honest = rng() < 0.7, shown = honest ? I.g + rand(-0.08, 0.08) : rand(-0.3, 0.8);
     pushNews({ text: `🔥 Grey market premium for ${I.def.name} IPO: ${pct(shown)}. Subscribed ${I.sub}x! Last day to apply.`, src: 'tv', truth: honest, sent: shown, tags: [{ label: '🔔 IPO' }] });
   }
   if (d >= I.list) listIPO();
@@ -475,10 +475,10 @@ function startIPO(d) {
   const a = pick(IPO_NAMES[0]), b = pick(IPO_NAMES[1]);
   let sym = (a + b).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 8);
   while (MAP[sym]) sym = sym.slice(0, 7) + String.fromCharCode(65 + rnd(0, 25));
-  const sec = IPO_SEC[b], price = rnd(40, 900), r = Math.random();
+  const sec = IPO_SEC[b], price = rnd(40, 900), r = rng();
   const g = r < 0.35 ? rand(0.3, 0.9) : r < 0.75 ? rand(-0.1, 0.25) : rand(-0.4, -0.1);
   S.ipo = {
-    def: { sym, name: `${a} ${b}`, cc: Math.random() < 0.75 ? 'IN' : 'US', sec, em: '🔔', price, vol: +rand(1.5, 3).toFixed(1), desc: `Fresh IPO! ${a} ${b} promises to disrupt ${SECTORS[sec].name}.` },
+    def: { sym, name: `${a} ${b}`, cc: rng() < 0.75 ? 'IN' : 'US', sec, em: '🔔', price, vol: +rand(1.5, 3).toFixed(1), desc: `Fresh IPO! ${a} ${b} promises to disrupt ${SECTORS[sec].name}.` },
     price, open: d, list: d + 2, applied: 0, g, sub: +(g > 0.3 ? rand(30, 150) : g > 0 ? rand(3, 30) : rand(0.5, 3)).toFixed(1),
   };
   pushNews({ text: `🔔 IPO ALERT: ${a} ${b} (${SECTORS[sec].em} ${SECTORS[sec].name}) opens today at ₹${price}/share! Apply before Day ${d + 1} closes.`, src: 'paper', truth: true, sent: 0.01, big: true, tags: [{ label: '🔔 IPO' }] });
@@ -523,7 +523,7 @@ function buyTip() {
   modal(`<h2>🕵️ Bhai ka tip</h2><p>A guy in a leather jacket at the chai tapri says he has "pakka info".</p><p>Fee: <b>${money(fee)}</b>. Bhai is right about 65% of the time. Probably.</p>`,
     [{ label: `💸 Pay ${money(fee)}`, cls: 'primary', fn: () => {
       S.cash -= fee; S.stats.tips++;
-      const c = pick(S.comps.filter(x => x.vol >= 1.2)), dir = Math.random() < 0.5 ? 1 : -1, real = Math.random() < 0.65;
+      const c = pick(S.comps.filter(x => x.vol >= 1.2)), dir = rng() < 0.5 ? 1 : -1, real = rng() < 0.65;
       S.sched.push({ at: S.t + rnd(25, 90), kind: 'tip', sym: c.sym, dir, real });
       setTimeout(() => modal(`<h2>🕵️ Bhai whispers...</h2><p class="big">"${c.em} <b>${esc(c.name)}</b> (${c.sym}) is going to ${dir > 0 ? '<b class="up">FLY 🚀</b>' : '<b class="dn">CRASH 📉</b>'} very soon. Trust me, bro."</p><p class="muted">Act fast. News usually lands within a few seconds.</p>`,
         [{ label: `Open ${c.sym}`, cls: 'primary', fn: () => select(c.sym) }, { label: 'OK' }]), 50);
@@ -533,7 +533,7 @@ function buyTip() {
 function showCard() {
   const C = pick(CARDS), amt = Math.max(1000, Math.round(S.cash * C.cost));
   if (amt > S.cash) return;
-  const win = Math.random() < C.p, msg = (win ? C.win : C.lose).replace('{amt}', money(amt * C.x));
+  const win = rng() < C.p, msg = (win ? C.win : C.lose).replace('{amt}', money(amt * C.x));
   modal(`<h2>🃏 Life Event</h2><p class="big">${esc(C.q.replace('{amt}', money(amt)))}</p>`, [
     { label: `✅ Yes (${money(amt)})`, cls: 'primary', fn: () => {
       S.cash -= amt;
@@ -683,7 +683,7 @@ function confetti() {
   for (let i = 0; i < 70; i++) {
     const s = document.createElement('i');
     s.className = 'cf';
-    s.style.cssText = `left:${Math.random() * 100}vw;background:${pick(['#00e676', '#ffd54f', '#4fc3f7', '#ff4081', '#fff'])};animation-duration:${1 + Math.random() * 1.5}s;animation-delay:${Math.random() * 0.3}s`;
+    s.style.cssText = `left:${rng() * 100}vw;background:${pick(['#00e676', '#ffd54f', '#4fc3f7', '#ff4081', '#fff'])};animation-duration:${1 + rng() * 1.5}s;animation-delay:${rng() * 0.3}s`;
     document.body.appendChild(s); setTimeout(() => s.remove(), 3000);
   }
 }
@@ -955,7 +955,7 @@ function renderCompany(c, force) {
 
 function posLine(k, p) {
   const c = MAP[p.sym], v = posValue(p, c.p), pnl = v - p.margin, pc = pnl / p.margin;
-  return `<div class="posRow ${cls(pnl)}">
+  return `<div class="posRow ${cls(pnl)}" data-act="sel:${p.sym}">
     <div><b>${c.em} ${p.sym}</b> <span class="chip ${p.side > 0 ? 'good' : 'bad'}">${p.side > 0 ? 'LONG' : 'SHORT'}${p.lev > 1 ? ' ' + p.lev + 'x' : ''}</span>
     <small>${p.qty} @ ${px(p.entry)}${p.sl ? ` · 🛑${px(p.sl)}` : ''}${p.tp ? ` · 🎯${px(p.tp)}` : ''}</small></div>
     <div class="pnl"><b class="${cls(pnl)}">${money(pnl)}</b><small class="${cls(pnl)}">${pct(pc)}</small></div>
@@ -965,7 +965,7 @@ function posLine(k, p) {
 }
 function optLine(o) {
   const v = optValue(o), pnl = v - o.prem;
-  return `<div class="posRow ${cls(pnl)}"><div><b>${MAP[o.sym].em} ${o.sym}</b> <span class="chip">${o.type > 0 ? '📈 CALL' : '📉 PUT'}</span>
+  return `<div class="posRow ${cls(pnl)}" data-act="sel:${o.sym}"><div><b>${MAP[o.sym].em} ${o.sym}</b> <span class="chip">${o.type > 0 ? '📈 CALL' : '📉 PUT'}</span>
     <small>${o.qty} @ strike ${px(o.K)} · expires Day ${o.exp} close</small></div>
     <div class="pnl"><b class="${cls(pnl)}">${money(pnl)}</b><small>worth ${money(v)}</small></div>
     <div class="pbtn"><button class="sell" data-act="exer:${o.id}">Cash out</button></div></div>`;
