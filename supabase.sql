@@ -24,4 +24,4 @@ create table if not exists room_scores (
 alter table room_scores enable row level security;
 create policy "read scores" on room_scores for select to anon, authenticated using (true);
 create policy "add score" on room_scores for insert to anon, authenticated with check (true);
-create policy "update unfinished" on room_scores for update to anon, authenticated using (not done);
+create policy "update unfinished" on room_scores for update to anon, authenticated using (not done) with check (true);
