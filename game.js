@@ -12,6 +12,16 @@ let COL = {}, rc = 0, infoSym = null, modalQ = [], modalBtns = null, lastSnd = 0
 
 // ---------- utils ----------
 const $ = s => document.querySelector(s);
+// Room games keep the market's random state in S.rs (mulberry32), so everyone in a room sees the same market.
+// Anything a player's own choices trigger (tips, business luck, confetti) runs inside own() so it never shifts that stream.
+function rng() {
+  if (S?.rs == null) return Math.random();
+  const a = S.rs = S.rs + 0x6D2B79F5 | 0;
+  let t = Math.imul(a ^ a >>> 15, 1 | a);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+function own(fn) { const rs = S.rs; S.rs = null; try { return fn(); } finally { S.rs = rs; } }
 const rand = (a, b) => a + rng() * (b - a);
 const rnd = (a, b) => Math.floor(rand(a, b + 1));
 const pick = a => a[Math.floor(rng() * a.length)];
@@ -70,9 +80,9 @@ function pregen(c) {
   c.hi = Math.max(...c.candles.map(k => k[2])); c.lo = Math.min(...c.candles.map(k => k[3]));
 }
 
-function newGame() {
+function newGame(room) {
   S = {
-    v: 1, t: 0, cash: START_CASH, comps: [], pos: {}, opts: [], biz: [], news: [], sched: [], payouts: [],
+    v: 1, t: 0, room, rs: room ? seeded(room.code)() * 4294967296 | 0 : null, cash: START_CASH, comps: [], pos: {}, opts: [], biz: [], news: [], sched: [], payouts: [],
     regime: { k: 'bull', until: 3, next: null }, secTrend: {}, flags: {}, ach: {}, nid: 0, peak: START_CASH,
     rivals: RIVALS.map(r => ({ name: r.name, em: r.em, nw: START_CASH, prev: START_CASH })),
     stats: { trades: 0, wins: 0, losses: 0, best: 0, worst: 0, biz: 0, tips: 0, liq: 0 },
@@ -185,7 +195,7 @@ function exerciseOpt(id) {
 // ---------- news ----------
 function randomComp(sec, not) {
   const held = [...new Set(Object.values(S.pos).map(p => p.sym))];
-  if (!sec && held.length && rng() < 0.25) { const s = pick(held); if (MAP[s] !== not) return MAP[s]; }
+  if (!sec && !S.room && held.length && rng() < 0.25) { const s = pick(held); if (MAP[s] !== not) return MAP[s]; }
   const L = S.comps.filter(c => (!sec || c.sec === sec) && c !== not);
   return pick(L.length ? L : S.comps);
 }
@@ -285,11 +295,13 @@ function runSched() {
       pushNews({ text: `🚫 DEBUNKED: "${o ? o.text : 'earlier rumour'}" was FAKE NEWS`, src: 'paper', truth: true, sent: -(o?.sent || 0), tags: o?.tags || [], isDeb: true, big: Math.abs(o?.sent || 0) >= 0.1 });
     } else if (e.kind === 'tip') {
       const c = MAP[e.sym]; if (!c) continue;
-      if (e.real || rng() < 0.5) {
-        const dir = e.real ? e.dir : -e.dir;
-        const tpl = pick(NEWS.filter(t => t.fx.length === 1 && t.fx[0][0] === 'c' && (dir > 0 ? t.fx[0][2] > 0 : t.fx[0][3] < 0)));
-        fire(tpl, pick(tpl.src), { c }, true);
-      }
+      own(() => {
+        if (e.real || rng() < 0.5) {
+          const dir = e.real ? e.dir : -e.dir;
+          const tpl = pick(NEWS.filter(t => t.fx.length === 1 && t.fx[0][0] === 'c' && (dir > 0 ? t.fx[0][2] > 0 : t.fx[0][3] < 0)));
+          fire(tpl, pick(tpl.src), { c }, true);
+        }
+      });
     }
   }
 }
@@ -317,6 +329,7 @@ function tick() {
   if (--S.nextNews <= 0) { spawnNews(); S.nextNews = rnd(18, 34); }
   runSched();
   checkPositions();
+  if (S.room && !S.room.days && !S.room.done && netWorth() >= S.room.goal) roomFinish();
   S.t++;
   if (S.t % TPD === 0) dayEnd(day() - 1);
 }
@@ -413,7 +426,7 @@ function dayStart() {
 
 function dayEnd(d) {
   const log = [];
-  for (const b of [...S.biz]) {
+  own(() => { for (const b of [...S.biz]) {
     const D = BDEF[b.id];
     let inc = Math.round(bizBase(b) * bizMult(D, d)), note = '';
     if (D.special === 'film') {
@@ -442,7 +455,7 @@ function dayEnd(d) {
     if (D.special !== 'film' && rng() < 0.12) { const [t, m] = pick(BIZ_EVENTS); inc = Math.round(inc * m); note = t.replace('{b}', D.name); }
     S.cash += inc; b.yday = inc; S.stats.biz += inc;
     log.push({ em: D.em, name: D.name, inc, note });
-  }
+  } });
   for (const o of S.opts.filter(o => o.exp <= d)) exerciseOpt(o.id);
   const pays = S.payouts.filter(p => p.d <= d);
   S.payouts = S.payouts.filter(p => p.d > d);
@@ -459,6 +472,7 @@ function dayEnd(d) {
   checkAch();
   save();
   if (!quiet) showRecap(d, log, pays, nw);
+  if (S.room && !S.room.done) S.room.days && d >= S.room.goal ? roomFinish() : roomPush();
 }
 
 // ---------- IPO / tips / cards ----------
@@ -521,19 +535,19 @@ function buyTip() {
   const nw = netWorth(), fee = Math.round(Math.max(2000, nw * 0.02));
   if (fee > S.cash) return err(`Bhai wants ${money(fee)}. You're too broke for tips 😅`);
   modal(`<h2>🕵️ Bhai ka tip</h2><p>A guy in a leather jacket at the chai tapri says he has "pakka info".</p><p>Fee: <b>${money(fee)}</b>. Bhai is right about 65% of the time. Probably.</p>`,
-    [{ label: `💸 Pay ${money(fee)}`, cls: 'primary', fn: () => {
+    [{ label: `💸 Pay ${money(fee)}`, cls: 'primary', fn: () => own(() => {
       S.cash -= fee; S.stats.tips++;
       const c = pick(S.comps.filter(x => x.vol >= 1.2)), dir = rng() < 0.5 ? 1 : -1, real = rng() < 0.65;
       S.sched.push({ at: S.t + rnd(25, 90), kind: 'tip', sym: c.sym, dir, real });
       setTimeout(() => modal(`<h2>🕵️ Bhai whispers...</h2><p class="big">"${c.em} <b>${esc(c.name)}</b> (${c.sym}) is going to ${dir > 0 ? '<b class="up">FLY 🚀</b>' : '<b class="dn">CRASH 📉</b>'} very soon. Trust me, bro."</p><p class="muted">Act fast. News usually lands within a few seconds.</p>`,
         [{ label: `Open ${c.sym}`, cls: 'primary', fn: () => select(c.sym) }, { label: 'OK' }]), 50);
-    } }, { label: 'No thanks' }]);
+    }) }, { label: 'No thanks' }]);
 }
 
 function showCard() {
-  const C = pick(CARDS), amt = Math.max(1000, Math.round(S.cash * C.cost));
+  const C = pick(CARDS), win = rng() < C.p, amt = Math.max(1000, Math.round(S.cash * C.cost));
   if (amt > S.cash) return;
-  const win = rng() < C.p, msg = (win ? C.win : C.lose).replace('{amt}', money(amt * C.x));
+  const msg = (win ? C.win : C.lose).replace('{amt}', money(amt * C.x));
   modal(`<h2>🃏 Life Event</h2><p class="big">${esc(C.q.replace('{amt}', money(amt)))}</p>`, [
     { label: `✅ Yes (${money(amt)})`, cls: 'primary', fn: () => {
       S.cash -= amt;
@@ -579,7 +593,7 @@ function checkAch() {
 const titleFor = nw => TITLES.filter(([v]) => nw >= v).pop()[1];
 
 // ---------- save ----------
-function save() { S.at = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(S, (k, v) => k[0] === '_' ? undefined : v)); } catch { } cloudPush(); }
+function save() { if (quiet) return; S.at = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(S, (k, v) => k[0] === '_' ? undefined : v)); } catch { } cloudPush(); }
 function load() { try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && s.v === 1) { S = s; buildMap(); return true; } } catch { } return false; }
 
 // ---------- cloud save (Supabase: public anon key + row-level security, see supabase.sql) ----------
@@ -633,6 +647,76 @@ function cloudInit() {
   });
 }
 
+// ---------- friends rooms (see room_scores in supabase.sql) ----------
+// The goal lives in the code itself (TIGER42-10D = richest after 10 days, TIGER42-1CR = first to ₹1 Cr), so joining needs no lookup.
+const GOALS = [['5D', '⏱️ 5 days, richest wins'], ['10D', '⏱️ 10 days, richest wins'], ['20D', '⏱️ 20 days, richest wins'],
+  ['10L', '🎯 First to ₹10 L'], ['1CR', '🎯 First to ₹1 Cr'], ['10CR', '🎯 First to ₹10 Cr']];
+const ROOM_WORDS = ['TIGER', 'MANGO', 'CHAI', 'ROCKET', 'BULL', 'BEAR', 'DIWALI', 'MASALA', 'BHAI', 'STONK'];
+const PID_KEY = 'quickstock-pid', NAME_KEY = 'quickstock-name';
+function parseRoom(code) {
+  const m = /^[A-Z0-9]{2,12}-(\d{1,3})(D|L|CR)$/.exec(code.trim().toUpperCase());
+  if (!m || +m[1] < 1) return null;
+  const n = +m[1], days = m[2] === 'D';
+  return { code: m[0], days, goal: days ? n : n * (m[2] === 'L' ? 1e5 : 1e7) };
+}
+const goalText = r => r.days ? `richest after ${r.goal} days wins` : `first to ${money(r.goal)} wins`;
+const pid = () => localStorage.getItem(PID_KEY) || (localStorage.setItem(PID_KEY, crypto.randomUUID()), localStorage.getItem(PID_KEY));
+const raceTime = t => `Day ${Math.floor(t / TPD) + 1} ${clock(t)}`;
+
+function roomPush() {
+  if (!SB || !S.room || quiet) return;
+  const R = S.room;
+  SB.from('room_scores').upsert({ room: R.code, pid: pid(), name: R.name, nw: Math.round(netWorth()), day: day(), t: S.t, done: !!R.done, updated_at: new Date().toISOString() })
+    .then(({ error }) => error && console.warn('room score', error));
+}
+function roomFinish() {
+  S.room.done = true; S.room.at = S.t; S.room.nw = netWorth();
+  save(); roomPush(); confetti(); SND.win();
+  setTimeout(showRoom, 800); // give the score a moment to land before the leaderboard loads
+}
+function startRoom(r, name) {
+  if (!r) return err('That room code looks wrong. It should look like TIGER42-10D'), false;
+  name = name.trim().slice(0, 16);
+  if (!name) return err('Enter your name so friends know who you are'), false;
+  localStorage.setItem(NAME_KEY, name);
+  history.replaceState(null, '', '?room=' + r.code);
+  newGame({ ...r, name }); buildUI(); select(S.ui.sel); save(); roomPush();
+  modal(`<h2>🏁 Room ${r.code}</h2><p class="big">${goalText(r)}</p><p>Everyone in this room gets the <b>same market</b>: same prices, news and IPOs. Send this code to your friends:</p>
+    <p class="big"><b>${r.code}</b></p>`, [{ label: '📋 Copy invite link', fn: () => { copyInvite(); return false; } }, { label: '🚀 Start trading', cls: 'primary' }]);
+}
+function copyInvite() {
+  const url = location.origin + location.pathname + '?room=' + S.room.code;
+  const text = `Beat me on QuickStock! Room ${S.room.code}: ${goalText(S.room)}. ${url}`;
+  (navigator.share ? navigator.share({ text }) : navigator.clipboard.writeText(text).then(() => toast('📋 Invite copied', 'good'))).catch(() => { });
+}
+
+async function showRoom(code) { // code: undefined = this room's leaderboard, a string = the start/join form
+  if (!S.room || code != null) {
+    const name = esc(localStorage.getItem(NAME_KEY) || '');
+    return modal(`<h2>🏁 Play with friends</h2><p class="muted">Everyone in a room gets the same market. Starting or joining a room replaces your current solo game.</p>
+      <input id="rName" placeholder="Your name" maxlength="16" value="${name}" style="width:100%;padding:10px;font-size:16px">
+      <h3>Start a room</h3><select id="rGoal" style="width:100%;padding:10px;font-size:16px">${GOALS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+      <h3>Or join a friend</h3><input id="rCode" placeholder="Room code, e.g. TIGER42-10D" value="${esc(code || '')}" style="width:100%;padding:10px;font-size:16px;text-transform:uppercase">`, [
+      { label: '➕ Start room', cls: code ? '' : 'primary', fn: () => startRoom(parseRoom(`${ROOM_WORDS[Math.random() * ROOM_WORDS.length | 0]}${10 + Math.random() * 90 | 0}-${$('#rGoal').value}`), $('#rName').value) },
+      { label: '🤝 Join', cls: code ? 'primary' : '', fn: () => startRoom(parseRoom($('#rCode').value), $('#rName').value) },
+      { label: 'Cancel' }]);
+  }
+  const R = S.room;
+  let rows = null;
+  if (SB) { const { data } = await SB.from('room_scores').select('pid,name,nw,day,t,done').eq('room', R.code); rows = data; }
+  // Days race: richest wins. Net-worth race: finishers by time, then everyone else by net worth.
+  rows?.sort((a, b) => R.days ? b.nw - a.nw : (b.done - a.done) || (a.done ? a.t - b.t : b.nw - a.nw));
+  const me = pid(), line = r => R.days ? `${money(r.nw)}${r.done ? '' : ` <small>(Day ${r.day})</small>`}` : r.done ? `🏁 ${raceTime(r.t)}` : `${money(r.nw)} <small>(Day ${r.day})</small>`;
+  const board = rows ? `<ol class="plain">${rows.map(r => `<li class="${r.pid === me ? 'me' : ''}">${esc(r.name)}: <b>${line(r)}</b></li>`).join('') || '<li class="muted">No scores yet</li>'}</ol>`
+    : '<p class="muted">Couldn\'t load the leaderboard. Check your internet and tap Refresh.</p>';
+  modal(`<h2>${R.done ? '🏆 You finished!' : '🏁 Room ' + R.code}</h2><p>Room <b>${R.code}</b>: ${goalText(R)}</p>
+    ${R.done ? `<p class="big">${R.days ? `Final net worth <b>${money(R.nw)}</b>` : `Reached ${money(R.goal)} at <b>${raceTime(R.at)}</b>`}</p>` : ''}
+    <h3>🏆 Leaderboard</h3>${board}`, [
+    { label: '🔄 Refresh', fn: () => { setTimeout(showRoom, 0); } },
+    { label: '📋 Invite', fn: () => { copyInvite(); return false; } },
+    R.done ? { label: '🏁 New room', fn: () => { setTimeout(() => showRoom(''), 0); } } : { label: 'Close', cls: 'primary' }]);
+}
+
 // ---------- sound ----------
 let AC;
 function beep(f, d = 0.1, type = 'sine', v = 0.15, when = 0, f2) {
@@ -680,12 +764,12 @@ function breaking(text, sent) {
 function shake() { document.body.classList.add('shake'); setTimeout(() => document.body.classList.remove('shake'), 600); }
 function confetti() {
   if (quiet) return;
-  for (let i = 0; i < 70; i++) {
+  own(() => { for (let i = 0; i < 70; i++) {
     const s = document.createElement('i');
     s.className = 'cf';
     s.style.cssText = `left:${rng() * 100}vw;background:${pick(['#00e676', '#ffd54f', '#4fc3f7', '#ff4081', '#fff'])};animation-duration:${1 + rng() * 1.5}s;animation-delay:${rng() * 0.3}s`;
     document.body.appendChild(s); setTimeout(() => s.remove(), 3000);
-  }
+  } });
 }
 function modal(html, btns = [{ label: 'OK', cls: 'primary' }]) {
   if (quiet) return;
@@ -730,6 +814,7 @@ function showHelp() {
     <li>🏪 Use profits to buy <b>businesses</b>. They pay you every night, depending on the market mood.</li>
     <li>🔓 Unlocks: 🐻 Shorting at ${money(UNLOCK.short)} · ⚡ Leverage at ${money(UNLOCK.lev)} · 📈📉 Options at ${money(UNLOCK.opt)}</li>
     <li>🕵️ Buy shady tips, apply for 🔔 IPOs, take risky 🃏 life events, and beat 3 rivals.</li>
+    <li>🏁 <b>Play with friends:</b> tap 🏁 Friends to start a room. Everyone gets the same market. Pick a day limit or a money target.</li>
     <li>⌨️ <b>Space</b> pause · <b>B</b> buy · <b>S</b> sell · <b>1/2/3</b> speed · <b>↑↓</b> switch stock</li>
   </ul>`, [{ label: '🚀 Let\'s go!', cls: 'primary' }]);
 }
@@ -874,6 +959,8 @@ function render(force) {
   $('#ipoBtn').hidden = !S.ipo;
   if (S.ipo) $('#ipoBtn').textContent = `🔔 IPO: ${S.ipo.def.name}`;
   $('#sndBtn').textContent = S.sound ? '🔊' : '🔇';
+  const RM = S.room;
+  $('#roomBtn').textContent = !RM ? '🏁 Friends' : RM.done ? '🏆 Results' : RM.days ? `🏁 Day ${Math.min(d, RM.goal)}/${RM.goal}` : `🏁 ${Math.min(99, nw / RM.goal * 100 | 0)}% to ${money(RM.goal)}`;
   document.querySelectorAll('[data-act^="speed:"]').forEach(b => b.classList.toggle('on', S.paused ? b.dataset.act === 'speed:0' : b.dataset.act === 'speed:' + S.speed));
   document.body.classList.toggle('warn', !!S.warn);
   document.body.classList.toggle('paused', !!S.paused);
@@ -1093,6 +1180,7 @@ const ACTIONS = {
   snd: () => { S.sound = !S.sound; render(); },
   theme: () => { S.ui.theme = S.ui.theme === 'light' ? 'dark' : 'light'; applyTheme(); },
   help: () => showHelp(),
+  room: () => showRoom(),
   cloud: () => showLogin(),
   reset: () => modal('<h2>🔄 Start a new run?</h2><p>This wipes your current game: cash, stocks, businesses and trophies.</p>',
     [{ label: '🔥 Yes, start over', cls: 'sellbtn', fn: () => { localStorage.removeItem(SAVE_KEY); newGame(); buildUI(); select(S.ui.sel); } }, { label: 'Cancel', cls: 'primary' }]),
@@ -1154,6 +1242,10 @@ function selfTest() {
     S.cash = 10000; c.p = 100; buyOpt(s, 1, 10); const o = S.opts[0]; c.p = 120; near(optValue(o), 200, 'call value');
     S.regime.k = 'bull'; near(bizBase({ id: 'chai', lvl: 3 }) * bizMult(BDEF.chai, 1), 4000 * 2.2, 'chai lvl3 income');
     S.regime.k = 'crash'; near(BDEF.gold.reg.crash, 3, 'gold loves crash');
+    const run = play => { newGame(parseRoom('TEST1-5D')); play(); for (let i = 0; i < TPD * 3; i++) tick(); return S.comps.map(c => c.p.toFixed(4)).join(); };
+    const a = run(() => { }), b = run(() => { S.cash = 1e9; openPos(S.comps[0].sym, 1, 1, 100); S.biz.push({ id: 'film', lvl: 1, inv: 1e5, yday: 0 }, { id: 'chai', lvl: 1, inv: 1e4, yday: 0 }); });
+    near(+(a === b), 1, 'same room code = same market, whatever the player does');
+    near(+(a !== run(() => { S.rs ^= 1; })), 1, 'different seed = different market');
     console.log('✅ QuickStock self-test passed:', ok);
     alert('✅ Self-test passed (' + ok.length + ' checks)');
   } catch (e) { console.error(e); alert('❌ Self-test FAILED: ' + e.message); }
@@ -1169,10 +1261,12 @@ function boot() {
   if (location.search.includes('test')) selfTest();
   buildUI(); bindInput(); select(S.ui.sel); setMob(S.ui.m);
   $('#fWatch').classList.toggle('on', S.ui.watch);
-  if (fresh) showHelp();
+  const link = new URLSearchParams(location.search).get('room');
+  if (link && link.toUpperCase() !== S.room?.code) showRoom(link);
+  else if (fresh) showHelp();
   cloudInit();
   setInterval(() => {
-    if (S.paused || modalBtns) return;
+    if (S.paused || modalBtns || S.room?.done) return;
     for (let i = 0; i < S.speed && !modalBtns; i++) tick();
     const c = MAP[S.ui.sel];
     if (series && chartSym === c.sym) { const k = c.cur; series.update({ time: (k[0] + T0) * 900, open: k[1], high: k[2], low: k[3], close: k[4] }); }
