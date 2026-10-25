@@ -88,7 +88,7 @@ function newGame() {
   buildMap();
   S.comps.forEach(pregen);
 }
-function buildMap() { MAP = {}; for (const c of S.comps) MAP[c.sym] = c; }
+function buildMap() { MAP = {}; for (const c of S.comps) MAP[c.sym] = c; for (const b of S.biz) b.lvl = Math.min(b.lvl, 5); } // heal saves hit by the double-click upgrade bug
 
 // ---------- money math ----------
 const posValue = (p, P) => p.margin + p.side * (P - p.entry) * p.qty;
@@ -1084,8 +1084,8 @@ const ACTIONS = {
   half: k => { const p = S.pos[k]; if (p) closePos(k, Math.max(1, Math.floor(p.qty / 2))); after(); },
   opt: t => { if (buyOpt(S.ui.sel, +t, qtyVal())) after(); },
   exer: id => { exerciseOpt(+id); after(); },
-  bizBuy: id => { const D = BDEF[id]; if (S.cash < D.cost) return err('Not enough cash'); S.cash -= D.cost; S.biz.push({ id, lvl: 1, inv: D.cost, yday: 0 }); toast(`${D.em} You now own a <b>${D.name}</b>! Income arrives at day close.`, 'good'); SND.win(); after(); },
-  bizUp: id => { const b = S.biz.find(x => x.id === id), cost = bizUpCost(b); if (S.cash < cost) return err('Not enough cash'); S.cash -= cost; b.inv += cost; b.lvl++; toast(`${BDEF[id].em} ${BDEF[id].name} upgraded to level ${b.lvl}!`, 'good'); SND.buy(); after(); },
+  bizBuy: id => { const D = BDEF[id]; if (S.biz.some(x => x.id === id)) return; if (S.cash < D.cost) return err('Not enough cash'); S.cash -= D.cost; S.biz.push({ id, lvl: 1, inv: D.cost, yday: 0 }); toast(`${D.em} You now own a <b>${D.name}</b>! Income arrives at day close.`, 'good'); SND.win(); after(); },
+  bizUp: id => { const b = S.biz.find(x => x.id === id); if (!b || b.lvl >= 5) return; const cost = bizUpCost(b); if (S.cash < cost) return err('Not enough cash'); S.cash -= cost; b.inv += cost; b.lvl++; toast(`${BDEF[id].em} ${BDEF[id].name} upgraded to level ${b.lvl}!`, 'good'); SND.buy(); after(); },
   bizSell: id => { const i = S.biz.findIndex(x => x.id === id), b = S.biz[i], v = bizValue(b); S.cash += v; S.biz.splice(i, 1); toast(`Sold ${BDEF[id].name} for ${money(v)}`, 'info'); after(); },
   speed: v => { v = +v; if (v === 0) S.paused = !S.paused; else { S.speed = v; S.paused = false; } render(); },
   tip: () => buyTip(),
