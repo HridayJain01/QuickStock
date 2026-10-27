@@ -921,9 +921,10 @@ function buildTrade() {
   $('#trade').innerHTML = `
     <div class="tRow"><label>Qty</label><input id="qty" type="number" min="1" value="${S.ui.qty || 10}">
       <button data-act="qty:1">1</button><button data-act="qty:10">10</button><button data-act="qty:100">100</button><button data-act="qty:max">MAX</button></div>
-    <div class="tRow"><label>Leverage</label>${lev}
-      <label title="Auto-sell if price moves against you by this %">🛑 SL%</label><input id="sl" type="number" min="0" placeholder="off" class="sm">
-      <label title="Auto-sell when profit reaches this %">🎯 TP%</label><input id="tp" type="number" min="0" placeholder="off" class="sm"></div>
+    <details class="adv" ${S.ui.adv ? 'open' : ''}><summary>⚙️ Leverage ${S.ui.lev}x · Stop-loss / Target</summary>
+    <div class="tRow"><label>Leverage</label>${lev}</div>
+    <div class="tRow"><label title="Auto-sell if price moves against you by this %">🛑 SL%</label><input id="sl" type="number" min="0" placeholder="off" class="sm">
+      <label title="Auto-sell when profit reaches this %">🎯 TP%</label><input id="tp" type="number" min="0" placeholder="off" class="sm"></div></details>
     <div class="est" id="est"></div>
     <div class="btns">
       <button class="big buy" data-act="buy">▲ BUY</button>
@@ -962,6 +963,8 @@ function render(force) {
   const RM = S.room;
   $('#roomBtn').textContent = !RM ? '🏁 Friends' : RM.done ? '🏆 Results' : RM.days ? `🏁 Day ${Math.min(d, RM.goal)}/${RM.goal}` : `🏁 ${Math.min(99, nw / RM.goal * 100 | 0)}% to ${money(RM.goal)}`;
   document.querySelectorAll('[data-act^="speed:"]').forEach(b => b.classList.toggle('on', S.paused ? b.dataset.act === 'speed:0' : b.dataset.act === 'speed:' + S.speed));
+  document.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('on', b.dataset.sort === S.ui.sort));
+  $('#wChip').classList.toggle('on', !!S.ui.watch);
   document.body.classList.toggle('warn', !!S.warn);
   document.body.classList.toggle('paused', !!S.paused);
 
@@ -1016,7 +1019,7 @@ function renderCompany(c, force) {
   // trade estimate + positions
   const q = Math.max(0, Math.floor(+($('#qty')?.value) || 0)), lev = S.ui.lev, P = c.p;
   const est = $('#est');
-  if (est) est.innerHTML = `Cost <b>${money(P * q / lev)}</b>${lev > 1 ? ` <small>(controls ${money(P * q)})</small>` : ''} · Fee ${money(P * q * FEE)} · Max buy <b>${Math.floor(S.cash / (P / lev + P * FEE))}</b> · Cash ${money(S.cash)}`;
+  if (est) est.innerHTML = `Cost <b>${money(P * q / lev)}</b>${lev > 1 ? ` <small>(controls ${money(P * q)})</small>` : ''}<span class="xtra"> · Fee ${money(P * q * FEE)}</span> · Max <b>${Math.floor(S.cash / (P / lev + P * FEE))}</b><span class="xtra"> · Cash ${money(S.cash)}</span>`;
   const prem = $('#prem'); if (prem) prem.textContent = `Premium ≈ ${money(P * q * (0.015 + 0.015 * c.vol))}`;
   const mine = Object.entries(S.pos).filter(([, p]) => p.sym === c.sym);
   const myOpts = S.opts.filter(o => o.sym === c.sym);
@@ -1026,7 +1029,7 @@ function renderCompany(c, force) {
   if (!mouseDown && (force || rc % 2 === 0 || infoSym !== c.sym)) {
     infoSym = c.sym;
     const news = S.news.filter(n => n.tags.some(t => t.sym === c.sym)).slice(0, 6);
-    $('#coInfo').innerHTML = `<p class="desc">${esc(c.desc)}</p>
+    $('#coInfo').innerHTML = `<details class="about" ${S.ui.about ? 'open' : ''}><summary>ℹ️ About ${esc(c.name)} · P/E ${(c.p / c.eps).toFixed(1)} · ${volLabel(c.vol)}</summary><p class="desc">${esc(c.desc)}</p>
     <div class="facts">
       <div><small>CEO</small><b>${esc(c.ceo)}</b></div><div><small>Founded</small><b>${c.founded}</b></div>
       <div><small>Employees</small><b>${c.emp.toLocaleString('en-IN')}</b></div><div><small>Market cap</small><b>${money(c.p * c.shares)}</b></div>
@@ -1034,7 +1037,7 @@ function renderCompany(c, force) {
       <div><small>Day range</small><b>${px(c.dlo)} – ${px(c.dhi)}</b></div><div><small>All-time range</small><b>${px(c.lo)} – ${px(c.hi)}</b></div>
       <div><small>Volatility</small><b>${volLabel(c.vol)}</b></div><div><small>Beta (market link)</small><b>${c.beta}</b></div>
       <div><small>Volume today</small><b>${Math.round(c.volu).toLocaleString('en-IN')}</b></div><div><small>Next results</small><b>Day ${c.nextEarn}</b></div>
-    </div>
+    </div></details>
     <h3>📰 News about ${esc(c.name)}</h3>
     ${news.length ? news.map(newsItem).join('') : '<p class="muted small">No news yet. Quiet stocks can still move with their sector and the market.</p>'}`;
   }
@@ -1157,6 +1160,9 @@ const ACTIONS = {
   tab: t => { S.ui.tab = t; lastTabKey = ''; renderTab(); },
   nf: f => { S.ui.nf = f; lastTabKey = ''; renderTab(); },
   mob: m => setMob(m),
+  more: () => { $('#moreMenu').hidden = !$('#moreMenu').hidden; },
+  filters: () => { document.body.classList.toggle('showFilt'); },
+  watchChip: () => $('#fWatch').click(),
   qty: v => {
     const c = MAP[S.ui.sel];
     $('#qty').value = v === 'max' ? Math.max(1, Math.floor(S.cash / (c.p / S.ui.lev + c.p * FEE))) : v;
@@ -1195,7 +1201,11 @@ function bindInput() {
     if (mi) { const b = modalBtns[+mi.dataset.mi]; if (b.fn && b.fn() === false) return; closeModal(); return; }
     const ip = e.target.closest('[data-ipop]');
     if (ip) { $('#ipoAmt').value = Math.floor(S.cash * +ip.dataset.ipop); return; }
+    const so = e.target.closest('[data-sort]');
+    if (so) { $('#sort').value = so.dataset.sort; $('#sort').dispatchEvent(new Event('change')); return; }
+    if (!e.target.closest('#moreMenu, #moreBtn')) $('#moreMenu').hidden = true;
     const el = e.target.closest('[data-act]'); if (!el || el.disabled) return;
+    if (el.closest('#moreMenu')) $('#moreMenu').hidden = true;
     const s = el.dataset.act, i = s.indexOf(':');
     ACTIONS[i < 0 ? s : s.slice(0, i)]?.(i < 0 ? undefined : s.slice(i + 1));
   });
@@ -1205,6 +1215,7 @@ function bindInput() {
   $('#sort').addEventListener('change', e => { S.ui.sort = e.target.value; applyFilter(); render(true); });
   $('#fWatch').addEventListener('click', () => { S.ui.watch = !S.ui.watch; $('#fWatch').classList.toggle('on', S.ui.watch); applyFilter(); render(true); });
   document.addEventListener('input', e => { if (e.target.id === 'qty') S.ui.qty = +e.target.value; });
+  document.addEventListener('toggle', e => { if (e.target.matches('details.adv')) S.ui.adv = e.target.open; if (e.target.matches('details.about')) S.ui.about = e.target.open; }, true);
   document.addEventListener('keydown', e => {
     if (modalBtns) { if (e.key === 'Enter') { e.preventDefault(); ($('#modalBox .primary') || $('#modalBox [data-mi]'))?.click(); } return; }
     if (e.target.matches('input, select')) return;

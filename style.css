@@ -228,7 +228,7 @@ body.paused .clock::after { content: " ⏸ PAUSED"; color: var(--warn); font-wei
 /* phone: everything for a trade fits on one screen, extras hidden */
 @media (max-width: 600px) {
   #top { padding: 6px 10px; gap: 4px 12px; }
-  #mood, .dayBar, #nwChg, #ticker, [data-act="theme"] { display: none; }
+  #mood, .dayBar, #nwChg, #ticker, .hRight [data-act="theme"] { display: none; }
   .hLeft, .hMid { gap: 12px; } .clock b { font-size: 15px; } #nw { font-size: 18px; } #cash { font-size: 15px; }
   .nwBox small, .cashBox small { font-size: 9px; }
   .hRight > button, .iconBtn { padding: 4px 3px; font-size: 14px; } .speed button { padding: 4px 7px; }
@@ -242,4 +242,50 @@ body.paused .clock::after { content: " ⏸ PAUSED"; color: var(--warn); font-wei
   .est { font-size: 12px; margin-bottom: 6px; }
   #mobNav button { padding: 9px 2px; font-size: 14px; white-space: nowrap; }
   #toasts { top: 6px; bottom: auto; left: 8px; right: 8px; width: auto; pointer-events: none; } .toast { padding: 7px 10px; font-size: 13px; }
+}
+
+/* compact controls (all sizes) */
+#moreBtn { display: none; }
+#moreMenu { position: fixed; top: 52px; right: 8px; z-index: 55; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px; display: flex; flex-direction: column; gap: 4px; min-width: 210px; box-shadow: 0 12px 40px rgba(0, 0, 0, .4); animation: pop .15s; }
+#moreMenu button { text-align: left; background: transparent; border-color: transparent; padding: 11px 12px; }
+#moreMenu button:hover { background: var(--card2); }
+.chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chips button { flex: none; border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+#fToggle { flex: none; }
+.selRow input { flex: 1; }
+.filt { display: none; } body.showFilt .filt { display: flex; }
+#fToggle { display: inline-block; } body.showFilt #fToggle { background: var(--blue); color: var(--onBlue); }
+details > summary { cursor: pointer; list-style: none; font-weight: 600; font-size: 13px; color: var(--muted); padding: 6px 2px; user-select: none; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::after { content: " ▾"; } details[open] > summary::after { content: " ▴"; }
+details.adv { margin-bottom: 6px; } details.about { margin-top: 10px; }
+
+/* phone: one-thumb trading */
+@media (max-width: 600px) {
+  #top { display: flex; flex-wrap: nowrap; justify-content: space-between; gap: 8px; }
+  .hLeft, .hMid { gap: 10px; } .hRight { width: auto; gap: 4px; justify-content: flex-end; }
+  #tipBtn, #roomBtn, #themeBtn, #sndBtn, #cloudBtn, [data-act="help"].iconBtn, [data-act="reset"].iconBtn, .speed [data-act="speed:4"] { display: none; }
+  #moreBtn { display: inline-block; font-size: 20px; padding: 2px 8px; }
+  .clock span { display: none; }
+  #headline { display: none; }
+  main { padding: 4px 0 calc(64px + env(safe-area-inset-bottom)); gap: 0; }
+  .panel { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; }
+  /* stock list: bigger rows, fewer columns */
+  .row { grid-template-columns: minmax(0, 1fr) 46px 76px 68px; padding: 11px 12px; }
+  .row .star { display: none; }
+  .row .ch { border-radius: 7px; padding: 4px 0; text-align: center; font-size: 13px; }
+  .row .ch.up { background: var(--upbg); } .row .ch.dn { background: var(--dnbg); }
+  /* trade screen: buttons fixed above nav */
+  body[data-m="pChart"] #pChart { padding-bottom: 120px; }
+  #chart { height: 210px; }
+  #trade { border: 0; background: transparent; padding: 4px 0; }
+  .tRow button { flex: 1; } #qty { flex: 1.4; width: auto; }
+  .est .xtra { display: none; }
+  #trade .btns:not(.opt) { position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom)); z-index: 29; padding: 8px 10px; background: var(--header); border-top: 1px solid var(--line); grid-template-columns: 1fr 1fr; gap: 8px; }
+  #trade .btns:not(.opt) .short:not(:disabled), #trade .btns:not(.opt) .cover:not(:disabled) { padding: 8px 4px; font-size: 13px; }
+  button.big { padding: 14px 6px; font-size: 17px; }
+  #pMarket .listTools { padding: 8px 10px; }
+  #mobNav button.on { background: var(--blue); color: var(--onBlue); border-color: var(--blue); }
+  .psum { grid-template-columns: 1fr 1fr 1fr; }
 }

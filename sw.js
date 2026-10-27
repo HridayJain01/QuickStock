@@ -1,5 +1,5 @@
 // Network-first, fall back to cache so the game works offline after one visit.
-const CACHE = 'quickstock-v1';
+const CACHE = 'quickstock-v2';
 const FILES = ['./', 'index.html', 'style.css', 'data.js', 'game.js', 'manifest.json', 'icon.svg',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js',
   'https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js'];
