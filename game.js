@@ -865,7 +865,7 @@ function addRow(c) {
   const r = document.createElement('div');
   r.className = 'row'; r.dataset.act = 'sel:' + c.sym;
   r.innerHTML = `<button class="star" data-act="star:${c.sym}" title="Watchlist">☆</button>
-    <div class="nm"><b>${c.em} ${c.sym}</b> <span>${COUNTRIES[c.cc][0]}</span><small>${esc(c.name)}</small></div>
+    <div class="nm"><b>${c.em} ${c.sym}</b> <span>${COUNTRIES[c.cc][0]}</span><small>${esc(c.name)}</small><button class="qClose" data-act="closeSym:${c.sym}" title="Close all positions">✕ Close</button></div>
     <canvas width="52" height="26"></canvas><div class="px"></div><div class="ch"></div>`;
   c._row = r; c._cv = r.querySelector('canvas'); c._px = r.querySelector('.px'); c._ch = r.querySelector('.ch'); c._st = r.querySelector('.star');
   $('#list').appendChild(r);
@@ -1174,6 +1174,7 @@ const ACTIONS = {
   sell: () => { const k = posFor(1); if (!k) return err(`You don't own ${S.ui.sel}.`); closePos(k, qtyVal() || S.pos[k].qty); after(); },
   cover: () => { const k = posFor(-1); if (!k) return err(`No short on ${S.ui.sel}.`); closePos(k, qtyVal() || S.pos[k].qty); after(); },
   close: k => { if (S.pos[k]) closePos(k, S.pos[k].qty); after(); },
+  closeSym: sym => { const ks = Object.keys(S.pos).filter(k => S.pos[k].sym === sym); if (!ks.length) return; for (const k of ks) closePos(k, S.pos[k].qty); after(); },
   half: k => { const p = S.pos[k]; if (p) closePos(k, Math.max(1, Math.floor(p.qty / 2))); after(); },
   opt: t => { if (buyOpt(S.ui.sel, +t, qtyVal())) after(); },
   exer: id => { exerciseOpt(+id); after(); },

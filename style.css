@@ -289,3 +289,5 @@ details.adv { margin-bottom: 6px; } details.about { margin-top: 10px; }
   #mobNav button.on { background: var(--blue); color: var(--onBlue); border-color: var(--blue); }
   .psum { grid-template-columns: 1fr 1fr 1fr; }
 }
+.qClose { display: none; margin-top: 4px; padding: 3px 10px; font-size: 12px; background: var(--dnbg); color: var(--dn); border-color: var(--dn); }
+.row.own .qClose { display: inline-block; }
