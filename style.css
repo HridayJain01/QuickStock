@@ -291,3 +291,25 @@ details.adv { margin-bottom: 6px; } details.about { margin-top: 10px; }
 }
 .qClose { display: none; margin-top: 4px; padding: 3px 10px; font-size: 12px; background: var(--dnbg); color: var(--dn); border-color: var(--dn); }
 .row.own .qClose { display: inline-block; }
+
+/* friends rooms */
+#roomBar { display: flex; align-items: center; gap: 10px; padding: 5px 16px; background: var(--goldbg); border-bottom: 1px solid var(--line); font-size: 13px; }
+#roomBar > span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#roomBar .lb > span { margin-right: 14px; } #roomBar .me { color: var(--gold); font-weight: 700; }
+#roomBar button { flex: none; padding: 4px 12px; font-size: 13px; }
+.box .wide, .box button.wide { width: 100%; padding: 10px; font-size: 16px; margin-top: 6px; }
+.box button.primary { background: var(--blue); color: var(--onBlue); border-color: var(--blue); }
+.rCols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; } @media (max-width: 600px) { .rCols { grid-template-columns: 1fr; } }
+.mBtns { flex-wrap: wrap; } .mBtns button { min-width: 120px; }
+.box .code { font-size: 26px; font-weight: 800; letter-spacing: .06em; text-align: center; padding: 12px; margin: 10px 0; border: 2px dashed var(--line); border-radius: 12px; cursor: pointer; }
+.box .code small { font-size: 12px; letter-spacing: 0; font-weight: 600; }
+ul.players { list-style: none; padding: 0; margin: 4px 0; }
+.players li { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; background: var(--card); border-radius: 9px; margin-bottom: 4px; }
+.players .kick { padding: 2px 8px; margin-left: 6px; font-size: 12px; background: var(--dnbg); color: var(--dn); border-color: transparent; }
+ol.board { list-style: none; padding: 0; margin: 6px 0; }
+.board li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--card); border-radius: 10px; margin-bottom: 5px; }
+.board li.me { outline: 2px solid var(--gold); } .board li.gone { opacity: .5; }
+.board .rk { font-size: 20px; width: 30px; text-align: center; } .board .who { flex: 1; min-width: 0; } .board .who small, .board .amt small { display: block; }
+.board .amt { text-align: right; } .board .bar { display: block; height: 4px; background: var(--line); border-radius: 3px; margin-top: 4px; overflow: hidden; }
+.board .bar i { display: block; height: 100%; background: var(--gold); }
+@media (max-width: 600px) { #roomBar { padding: 5px 10px; font-size: 12px; } #roomBar .lb > span { margin-right: 8px; } }

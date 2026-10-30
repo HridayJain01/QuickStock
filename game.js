@@ -471,7 +471,8 @@ function dayEnd(d) {
   S.peak = Math.max(S.peak, nw);
   checkAch();
   save();
-  if (!quiet) showRecap(d, log, pays, nw);
+  if (!quiet && S.room) { const chg = nw - (S.dayLog?.startNW || nw); toast(`🌙 Day ${d} closed: <b class="${cls(chg)}">${arrow(chg)} ${money(chg)}</b> · net worth ${money(nw)}`, 'info'); }
+  else if (!quiet) showRecap(d, log, pays, nw);
   if (S.room && !S.room.done) S.room.days && d >= S.room.goal ? roomFinish() : roomPush();
 }
 
@@ -546,7 +547,7 @@ function buyTip() {
 
 function showCard() {
   const C = pick(CARDS), win = rng() < C.p, amt = Math.max(1000, Math.round(S.cash * C.cost));
-  if (amt > S.cash) return;
+  if (amt > S.cash || (S.room && modalBtns)) return; // rooms never pause, so don't stack cards behind an open screen
   const msg = (win ? C.win : C.lose).replace('{amt}', money(amt * C.x));
   modal(`<h2>🃏 Life Event</h2><p class="big">${esc(C.q.replace('{amt}', money(amt)))}</p>`, [
     { label: `✅ Yes (${money(amt)})`, cls: 'primary', fn: () => {
@@ -601,7 +602,7 @@ const SB_URL = 'https://cudqxauoekavszkjekpi.supabase.co', SB_KEY = 'eyJhbGciOiJ
 const SB = SB_URL && window.supabase ? supabase.createClient(SB_URL, SB_KEY) : null;
 let user = null, cloudOk = false, pushTm = 0;
 function cloudPush() {
-  if (!user || !cloudOk) return;
+  if (!user || !cloudOk || S.room) return; // room games are throwaway; the cloud keeps the solo game
   clearTimeout(pushTm);
   const go = () => SB.from('saves').upsert({ user_id: user.id, save: JSON.parse(localStorage.getItem(SAVE_KEY)), updated_at: new Date().toISOString() }).then(({ error }) => error && console.warn('cloud save', error));
   if (document.hidden) go(); else pushTm = setTimeout(go, 3000);
@@ -614,6 +615,7 @@ async function cloudPull() {
   localStorage.setItem(OWNER_KEY, user.id); cloudOk = true;
   const sum = s => `Day ${Math.floor(s.t / TPD) + 1} · ${money(s.cash)} cash`;
   if (!c || c.v !== 1) return save();                       // first sign-in: upload this device's game
+  if (S.room) return;                                         // mid-room: the solo game is parked, sort it out later
   if (mine) return (c.at || 0) > (S.at || 0) ? useSave(c) : save(); // same account: newest wins
   if (S.t < TPD) return useSave(c);                           // guest game barely started: just take the cloud
   modal(`<h2>☁️ Which game to keep?</h2><p>Your account has a cloud save, and this device has a guest game.</p>`, [
@@ -647,74 +649,284 @@ function cloudInit() {
   });
 }
 
-// ---------- friends rooms (see room_scores in supabase.sql) ----------
-// The goal lives in the code itself (TIGER42-10D = richest after 10 days, TIGER42-1CR = first to ₹1 Cr), so joining needs no lookup.
+// ---------- friends rooms (rooms + room_scores in supabase.sql) ----------
+// Flow: host creates a room → everyone waits in the lobby → host starts → the market runs on a shared clock
+// (start time + speed from the rooms row), so all players see the same prices at the same moment → results → rematch.
+// The goal lives in the code itself (TIGER4821-10D = richest after 10 days, TIGER4821-1CR = first to ₹1 Cr).
 const GOALS = [['5D', '⏱️ 5 days, richest wins'], ['10D', '⏱️ 10 days, richest wins'], ['20D', '⏱️ 20 days, richest wins'],
   ['10L', '🎯 First to ₹10 L'], ['1CR', '🎯 First to ₹1 Cr'], ['10CR', '🎯 First to ₹10 Cr']];
+const SPEEDS = [[1, '🐢 Normal (1 day = 75 sec)'], [2, '🐇 Fast (1 day = 38 sec)'], [4, '🚀 Crazy (1 day = 19 sec)']];
 const ROOM_WORDS = ['TIGER', 'MANGO', 'CHAI', 'ROCKET', 'BULL', 'BEAR', 'DIWALI', 'MASALA', 'BHAI', 'STONK'];
-const PID_KEY = 'quickstock-pid', NAME_KEY = 'quickstock-name';
+const PID_KEY = 'quickstock-pid', NAME_KEY = 'quickstock-name', SOLO_KEY = 'quickstock-solo';
+const RM = { info: null, rows: [], pushed: 0, tm: 0, ok: true }; // latest server view of the room, refreshed by roomPoll
 function parseRoom(code) {
-  const m = /^[A-Z0-9]{2,12}-(\d{1,3})(D|L|CR)$/.exec(code.trim().toUpperCase());
+  const m = /^[A-Z0-9]{2,12}-(\d{1,3})(D|L|CR)$/.exec(String(code).trim().toUpperCase());
   if (!m || +m[1] < 1) return null;
   const n = +m[1], days = m[2] === 'D';
   return { code: m[0], days, goal: days ? n : n * (m[2] === 'L' ? 1e5 : 1e7) };
 }
 const goalText = r => r.days ? `richest after ${r.goal} days wins` : `first to ${money(r.goal)} wins`;
+const speedText = s => (SPEEDS.find(x => x[0] === s) || SPEEDS[0])[1];
 const pid = () => localStorage.getItem(PID_KEY) || (localStorage.setItem(PID_KEY, crypto.randomUUID()), localStorage.getItem(PID_KEY));
 const raceTime = t => `Day ${Math.floor(t / TPD) + 1} ${clock(t)}`;
+const online = r => Date.now() - Date.parse(r.updated_at) < 25000;
+const medal = i => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
+// Where the shared clock says the market should be right now.
+function roomTarget() {
+  const R = S.room, n = Math.floor((Date.now() - R.start) / 250 * R.speed);
+  return R.days ? Math.min(n, R.goal * TPD) : n;
+}
 
-function roomPush() {
+// Leaderboard order. Left players sink to the bottom; money races put finishers first, by who got there first.
+function standings(R = S.room, rows = RM.rows) {
+  rows = rows.map(r => ({ ...r }));
+  if (S.room === R) {
+    const me = rows.find(r => r.pid === pid()) || (rows.push({ pid: pid(), name: R.name, updated_at: new Date().toISOString() }), rows.at(-1));
+    Object.assign(me, { nw: R.done ? R.nw : netWorth(), day: day(), t: R.done ? R.at : S.t, done: !!R.done, gone: false });
+  }
+  const won = r => !R.days && r.done && r.nw >= R.goal;
+  return rows.sort((a, b) => (a.gone - b.gone) || (won(b) - won(a)) || (won(a) ? a.t - b.t : b.nw - a.nw));
+}
+function boardHTML(R = S.room, rows) {
+  const L = standings(R, rows), me = pid();
+  if (!L.length) return '<p class="muted">No players yet</p>';
+  return `<ol class="board">${L.map((r, i) => {
+    const prog = R.days ? '' : `<i class="bar"><i style="width:${Math.min(100, r.nw / R.goal * 100)}%"></i></i>`;
+    const note = r.gone ? '🏳️ left' : !R.days && r.done && r.nw >= R.goal ? `🏁 ${raceTime(r.t)}` : r.done ? 'finished' : `Day ${r.day}${r.pid !== me && !online(r) ? ' · ⚪ away' : ''}`;
+    const ch = r.nw / START_CASH - 1;
+    return `<li class="${r.pid === me ? 'me' : ''} ${r.gone ? 'gone' : ''}"><span class="rk">${medal(i)}</span><span class="who"><b>${esc(r.name)}${r.pid === me ? ' (you)' : ''}</b><small>${note}</small>${prog}</span>
+      <span class="amt"><b>${money(r.nw)}</b><small class="${cls(ch)}">${pct(ch)}</small></span></li>`;
+  }).join('')}</ol>`;
+}
+function playersHTML() {
+  const R = S.room, me = pid(), host = RM.info?.host;
+  const L = RM.rows.filter(r => !r.gone);
+  if (!L.some(r => r.pid === me)) L.unshift({ pid: me, name: R.name, updated_at: new Date().toISOString() });
+  return `<ul class="players">${L.map(r => `<li><span>${r.pid === host ? '👑' : '🙂'} <b>${esc(r.name)}</b>${r.pid === me ? ' <small>(you)</small>' : ''}</span>
+    <span>${r.pid === me || online(r) ? '<small class="good">● online</small>' : '<small>○ away</small>'}${R.host && r.pid !== me ? ` <button class="kick" data-act="kick:${r.pid}" title="Remove from room">✕</button>` : ''}</span></li>`).join('')}</ul>`;
+}
+
+// ---------- server ----------
+async function roomFetch(code) {
+  const [a, b] = await Promise.all([SB.from('rooms').select('*').eq('code', code).maybeSingle(),
+    SB.from('room_scores').select('pid,name,nw,day,t,done,gone,updated_at').eq('room', code)]);
+  if (a.error || b.error) { console.warn('room fetch', a.error || b.error); return null; }
+  return { info: a.data, rows: b.data || [] };
+}
+function roomPush(join) {
   if (!SB || !S.room || quiet) return;
+  const R = S.room; RM.pushed = Date.now();
+  const row = { room: R.code, pid: pid(), name: R.name, nw: Math.round(R.done ? R.nw : netWorth()), day: day(), t: R.done ? R.at : S.t, done: !!R.done, updated_at: new Date().toISOString() };
+  if (join) Object.assign(row, { gone: false, done: false }); // only a (re)join clears "gone", so a stale tab can't undo a kick
+  return SB.from('room_scores').upsert(row).then(({ error }) => error && console.warn('room score', error));
+}
+function roomPoll() {
+  clearTimeout(RM.tm);
+  if (!S.room || !SB) return;
+  const R = S.room, code = R.code;
+  RM.tm = setTimeout(roomPoll, R.st === 'lobby' ? 2500 : R.st === 'live' ? 4000 : 8000);
+  if (R.st !== 'ended' && Date.now() - RM.pushed > (R.st === 'lobby' ? 10000 : 4000)) roomPush();
+  roomFetch(code).then(d => {
+    if (S.room?.code !== code) return;
+    RM.ok = !!d; if (!d) return renderRoom();
+    RM.info = d.info; RM.rows = d.rows;
+    const I = d.info, mine = d.rows.find(r => r.pid === pid());
+    if (R.st === 'lobby') {
+      if (!I || I.status === 'cancelled') return R.host ? null : backToSolo('<h2>🚫 Room closed</h2><p>The host cancelled this room.</p>');
+      if (mine?.gone) return backToSolo('<h2>👋 Removed from room</h2><p>The host removed you from the lobby.</p>');
+      if (I.status !== 'lobby') roomGo(I);
+    }
+    if (R.st === 'live' && !R.days && I?.status === 'ended' && !R.done) roomFinish(); // someone else hit the target first
+    renderRoom();
+  });
+}
+// Host pressed start (or we noticed it in a poll): lock in the shared clock.
+function roomGo(I) {
   const R = S.room;
-  SB.from('room_scores').upsert({ room: R.code, pid: pid(), name: R.name, nw: Math.round(netWorth()), day: day(), t: S.t, done: !!R.done, updated_at: new Date().toISOString() })
-    .then(({ error }) => error && console.warn('room score', error));
+  R.st = 'live'; R.start = Date.parse(I.start_at); R.speed = I.speed || 1;
+  if ($('#lobbyBox')) closeModal();
+  save(); render(true);
+  SND.bell(); toast('🚦 The host started the game. Get ready!', 'info');
+}
+
+// ---------- create / join / leave ----------
+function roomName() {
+  const name = ($('#rName')?.value || '').trim().slice(0, 16);
+  if (!name) { err('Enter your name so friends know who you are'); $('#rName')?.focus(); return null; }
+  localStorage.setItem(NAME_KEY, name);
+  return name;
+}
+async function createRoom(goal, speed, name, from) {
+  if (!SB) return err('Friends mode needs an internet connection.');
+  for (let i = 0; i < 5; i++) {
+    const r = parseRoom(`${ROOM_WORDS[Math.random() * ROOM_WORDS.length | 0]}${1000 + Math.random() * 9000 | 0}-${goal}`);
+    const { error } = await SB.from('rooms').insert({ code: r.code, host: pid(), speed });
+    if (error?.code === '23505') continue; // code taken, roll again
+    if (error) { console.warn('create room', error); return modal(`<h2>😕 Couldn't create the room</h2><p>${esc(error.message)}</p><p class="muted small">If this keeps happening, the rooms table may be missing: run supabase.sql again.</p>`); }
+    if (from) SB.from('rooms').update({ next: r.code }).eq('code', from).then(() => { });
+    return enterRoom({ ...r, name, host: true, speed });
+  }
+  err('Could not find a free room code. Try again.');
+}
+async function joinRoom(code, name) {
+  const r = parseRoom(code || '');
+  if (!r) return err('That room code looks wrong. It should look like TIGER4821-10D');
+  if (!SB) return err('Friends mode needs an internet connection.');
+  if (S.room?.code === r.code) return showRoom();
+  const d = await roomFetch(r.code);
+  if (!d) return err('Couldn\'t reach the server. Check your internet and try again.');
+  const I = d.info;
+  if (!I || I.status === 'cancelled') return modal(`<h2>🤷 Room not found</h2><p>There's no open room called <b>${esc(r.code)}</b>. Check the code with your friend.</p>`);
+  if (I.status !== 'lobby') return modal(`<h2>⏰ Game already started</h2><p>Room <b>${r.code}</b> has already started, so you can't join this round. Here's how it's going:</p>${boardHTML(r, d.rows)}<p class="muted small">Ask the host for a rematch when it ends.</p>`);
+  enterRoom({ ...r, name, host: I.host === pid(), speed: I.speed || 1 });
+}
+function enterRoom(r) {
+  if (S.room) leaveServer(); else { save(); try { localStorage.setItem(SOLO_KEY, localStorage.getItem(SAVE_KEY)); } catch { } } // park the solo game
+  const theme = S.ui.theme;
+  newGame({ ...r, st: 'lobby' }); S.ui.theme = theme;
+  RM.info = null; RM.rows = []; RM.ok = true;
+  history.replaceState(null, '', '?room=' + r.code);
+  buildUI(); select(S.ui.sel); save(); roomPush(true);
+  showLobby(); roomPoll();
+}
+function leaveServer() {
+  const R = S.room;
+  if (!SB || !R) return;
+  if (R.host && R.st === 'lobby') SB.from('rooms').update({ status: 'cancelled' }).eq('code', R.code).eq('status', 'lobby').then(() => { });
+  if (!R.done) SB.from('room_scores').update({ gone: true }).eq('room', R.code).eq('pid', pid()).then(() => { });
+}
+function backToSolo(msg) {
+  clearTimeout(RM.tm);
+  let s = null; try { s = JSON.parse(localStorage.getItem(SOLO_KEY)); } catch { }
+  localStorage.removeItem(SOLO_KEY);
+  const theme = S.ui.theme;
+  if (s && s.v === 1 && !s.room) { S = s; buildMap(); } else newGame();
+  S.ui.theme = theme;
+  history.replaceState(null, '', location.pathname);
+  modalQ = []; if (modalBtns) closeModal();
+  buildUI(); select(S.ui.sel); save(); render(true);
+  if (msg) modal(msg + '<p class="muted">You\'re back in your own game, right where you left it.</p>');
+  else toast('🏠 Back to your own game', 'info');
+}
+function leaveRoom() { leaveServer(); backToSolo(); }
+function quitRoom() {
+  const R = S.room;
+  if (R.st === 'lobby') return leaveRoom();
+  if (R.done || R.st === 'ended') return leaveRoom();
+  modal(`<h2>🏳️ Quit this game?</h2><p>You'll forfeit room <b>${R.code}</b> and drop to the bottom of the leaderboard. You can't rejoin this round.</p>`,
+    [{ label: '🏳️ Yes, quit', cls: 'sellbtn', fn: leaveRoom }, { label: 'Keep playing', cls: 'primary' }]);
+}
+function hostStart() {
+  const live = RM.rows.filter(r => !r.gone).length;
+  const go = () => {
+    const start_at = new Date(Date.now() + 4000).toISOString();
+    SB.from('rooms').update({ status: 'live', start_at }).eq('code', S.room.code).eq('status', 'lobby').select().then(({ data, error }) => {
+      if (error || !data?.length) return modal(`<h2>😕 Couldn't start</h2><p>${esc(error?.message || 'The room is no longer open.')}</p>`);
+      roomGo(data[0]); roomPush();
+    });
+  };
+  if (live < 2) return modal('<h2>🙋 Nobody has joined yet</h2><p>Send the invite link to your friends and wait for them to show up here. Or start anyway and play alone.</p>',
+    [{ label: '📋 Invite', fn: () => { copyInvite(); setTimeout(showLobby, 0); } }, { label: '🚀 Start anyway', fn: () => { go(); } }, { label: 'Wait', cls: 'primary', fn: () => { setTimeout(showLobby, 0); } }]);
+  go();
+}
+function kick(p) {
+  if (!S.room?.host || S.room.st !== 'lobby') return;
+  RM.rows = RM.rows.map(r => r.pid === p ? { ...r, gone: true } : r);
+  SB.from('room_scores').update({ gone: true }).eq('room', S.room.code).eq('pid', p).then(() => { });
+  renderRoom();
 }
 function roomFinish() {
-  S.room.done = true; S.room.at = S.t; S.room.nw = netWorth();
-  save(); roomPush(); confetti(); SND.win();
-  setTimeout(showRoom, 800); // give the score a moment to land before the leaderboard loads
+  const R = S.room;
+  R.done = true; R.st = 'ended'; R.at = S.t; R.nw = netWorth();
+  if (R.st && SB && !R.days && R.nw >= R.goal) SB.from('rooms').update({ status: 'ended', winner: R.name }).eq('code', R.code).eq('status', 'live').then(() => { });
+  if (R.st && SB && R.days && R.host) SB.from('rooms').update({ status: 'ended' }).eq('code', R.code).then(() => { });
+  if (!quiet) roomDone(); // a quiet catch-up calls it once it's back in sync
 }
-function startRoom(r, name) {
-  if (!r) return err('That room code looks wrong. It should look like TIGER42-10D'), false;
-  name = name.trim().slice(0, 16);
-  if (!name) return err('Enter your name so friends know who you are'), false;
-  localStorage.setItem(NAME_KEY, name);
-  history.replaceState(null, '', '?room=' + r.code);
-  newGame({ ...r, name }); buildUI(); select(S.ui.sel); save(); roomPush();
-  modal(`<h2>🏁 Room ${r.code}</h2><p class="big">${goalText(r)}</p><p>Everyone in this room gets the <b>same market</b>: same prices, news and IPOs. Send this code to your friends:</p>
-    <p class="big"><b>${r.code}</b></p>`, [{ label: '📋 Copy invite link', fn: () => { copyInvite(); return false; } }, { label: '🚀 Start trading', cls: 'primary' }]);
+function roomDone() {
+  save(); roomPush(); render(true); confetti(); SND.win();
+  setTimeout(showRoom, 800); // give the scores a moment to land before the results load
+}
+// The shared clock moved on: tick up to it. A big gap (tab was asleep) is replayed quietly in one go.
+function roomTick() {
+  const R = S.room;
+  if (R.st !== 'live' || R.done) return;
+  const target = roomTarget();
+  if (target - S.t > 8) {
+    quiet = true;
+    try { while (S.t < target - 1 && !R.done) tick(); } finally { quiet = false; }
+    loadChart(); after();
+    if (R.done) return roomDone();
+    save(); roomPush();
+  }
+  while (S.t < target && !R.done) tick();
 }
 function copyInvite() {
   const url = location.origin + location.pathname + '?room=' + S.room.code;
-  const text = `Beat me on QuickStock! Room ${S.room.code}: ${goalText(S.room)}. ${url}`;
-  (navigator.share ? navigator.share({ text }) : navigator.clipboard.writeText(text).then(() => toast('📋 Invite copied', 'good'))).catch(() => { });
+  const text = `Play QuickStock with me! Room ${S.room.code}: ${goalText(S.room)}. ${url}`;
+  (navigator.share ? navigator.share({ text }) : navigator.clipboard.writeText(text).then(() => toast('📋 Invite link copied. Send it to your friends!', 'good'))).catch(() => { });
 }
 
-async function showRoom(code) { // code: undefined = this room's leaderboard, a string = the start/join form
-  if (!S.room || code != null) {
-    const name = esc(localStorage.getItem(NAME_KEY) || '');
-    return modal(`<h2>🏁 Play with friends</h2><p class="muted">Everyone in a room gets the same market. Starting or joining a room replaces your current solo game.</p>
-      <input id="rName" placeholder="Your name" maxlength="16" value="${name}" style="width:100%;padding:10px;font-size:16px">
-      <h3>Start a room</h3><select id="rGoal" style="width:100%;padding:10px;font-size:16px">${GOALS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
-      <h3>Or join a friend</h3><input id="rCode" placeholder="Room code, e.g. TIGER42-10D" value="${esc(code || '')}" style="width:100%;padding:10px;font-size:16px;text-transform:uppercase">`, [
-      { label: '➕ Start room', cls: code ? '' : 'primary', fn: () => startRoom(parseRoom(`${ROOM_WORDS[Math.random() * ROOM_WORDS.length | 0]}${10 + Math.random() * 90 | 0}-${$('#rGoal').value}`), $('#rName').value) },
-      { label: '🤝 Join', cls: code ? 'primary' : '', fn: () => startRoom(parseRoom($('#rCode').value), $('#rName').value) },
-      { label: 'Cancel' }]);
+// ---------- screens ----------
+function showRoom(code) { // the 🏁 button: whichever room screen fits right now
+  if (!S.room || code != null) return showRoomForm(code);
+  if (S.room.st === 'lobby') return showLobby();
+  showBoard();
+}
+function showRoomForm(code) {
+  const name = esc(localStorage.getItem(NAME_KEY) || '');
+  const inRoom = S.room && !S.room.done ? `<p class="chip warnc">You're in room ${S.room.code}. Starting or joining another leaves it.</p>` : '';
+  modal(`<h2>🏁 Play with friends</h2>${inRoom}<p class="muted small">Everyone in a room trades the same live market. Your own game is saved and comes back when you leave.</p>
+    <input id="rName" placeholder="Your name" maxlength="16" value="${name}" class="wide">
+    <div class="rCols"><div><h3>Start a room</h3><select id="rGoal" class="wide">${GOALS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+      <select id="rSpeed" class="wide">${SPEEDS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+    <div><h3>Or join a friend</h3><input id="rCode" placeholder="Room code, e.g. TIGER4821-10D" value="${esc(code || '')}" class="wide" style="text-transform:uppercase"></div></div>`, [
+    { label: '➕ Create room', cls: code ? '' : 'primary', fn: () => { const n = roomName(); if (!n) return false; createRoom($('#rGoal').value, +$('#rSpeed').value, n); } },
+    { label: '🤝 Join', cls: code ? 'primary' : '', fn: () => { const n = roomName(); if (!n) return false; if (!parseRoom($('#rCode').value)) return err('That room code looks wrong. It should look like TIGER4821-10D'); joinRoom($('#rCode').value, n); } },
+    { label: 'Cancel' }]);
+  setTimeout(() => $(name ? (code ? '#rCode' : '#rGoal') : '#rName')?.focus(), 50);
+}
+function showLobby() {
+  const R = S.room, hostName = RM.rows.find(r => r.pid === RM.info?.host)?.name;
+  modal(`<div id="lobbyBox"><h2>🏁 Room lobby</h2><p>${goalText(R)} · ${speedText(R.speed)}</p>
+    <div class="code" data-act="invite" title="Copy invite">${R.code} <small>📋 copy</small></div>
+    <h3>Players</h3><div id="lobbyPlayers">${playersHTML()}</div>
+    <p class="muted small" id="lobbyHint">${R.host ? 'Share the code. Start when everyone is in.' : `Waiting for ${hostName ? esc(hostName) : 'the host'} to start the game…`}</p></div>`,
+  R.host ? [{ label: '❌ Cancel room', fn: leaveRoom }, { label: '📋 Invite', fn: () => { copyInvite(); return false; } }, { label: '🚀 Start game', cls: 'primary', fn: () => { hostStart(); } }]
+    : [{ label: '🚪 Leave', fn: leaveRoom }, { label: '📋 Invite', fn: () => { copyInvite(); return false; } }, { label: 'Hide', cls: 'primary' }]);
+}
+function showBoard() {
+  const R = S.room, I = RM.info, L = standings(), me = L.findIndex(r => r.pid === pid());
+  const head = !R.done ? `<h2>🏁 Live leaderboard</h2>` : me === 0 ? '<h2>🏆 You won!</h2>' : `<h2>🏁 Game over: you came ${medal(me)}</h2>`;
+  const sub = R.done ? (R.days ? `Your final net worth: <b>${money(R.nw)}</b>` : R.nw >= R.goal ? `You reached ${money(R.goal)} at <b>${raceTime(R.at)}</b>` : `${esc(I?.winner || 'Someone')} got to ${money(R.goal)} first.`)
+    : R.days ? `Day ${Math.min(day(), R.goal)} of ${R.goal}` : `Race to ${money(R.goal)}`;
+  modal(`<div id="boardBox"><p class="muted small">Room <b>${R.code}</b> · ${goalText(R)}</p>${head}<p>${sub}</p>
+    <div id="roomBoard">${boardHTML()}</div><div id="rematch">${rematchHTML()}</div></div>`,
+  R.done ? [{ label: '🏠 Back to my game', fn: leaveRoom }, ...(R.host && !I?.next ? [{ label: '🔁 Rematch', fn: () => { createRoom(R.code.split('-')[1], R.speed, R.name, R.code); } }] : []), { label: 'Close', cls: 'primary' }]
+    : [{ label: '🏳️ Quit game', fn: () => { setTimeout(quitRoom, 0); } }, { label: 'Close', cls: 'primary' }]);
+}
+const rematchHTML = () => S.room?.done && RM.info?.next && !S.room.host ? `<button class="primary wide" data-act="rejoin">🔁 The host started a rematch. Join ${RM.info.next}</button>` : '';
+// Keep whatever room screen is open (and the banner) in sync with the latest poll.
+function renderRoom() {
+  if ($('#lobbyPlayers')) $('#lobbyPlayers').innerHTML = playersHTML();
+  if ($('#roomBoard')) $('#roomBoard').innerHTML = boardHTML();
+  if ($('#rematch')) $('#rematch').innerHTML = rematchHTML();
+  roomBar();
+}
+function roomBar() {
+  const R = S.room, bar = $('#roomBar');
+  bar.hidden = !R;
+  if (!R) return;
+  const n = RM.rows.filter(r => !r.gone).length || 1, off = RM.ok ? '' : ' <small class="bad">· offline, retrying…</small>';
+  let html;
+  if (R.st === 'lobby') html = `<span>⏳ <b>Lobby ${R.code}</b> · ${n} player${n > 1 ? 's' : ''} · ${R.host ? 'start when ready' : 'waiting for host'}${off}</span><button data-act="room">${R.host ? '🚀 Lobby' : 'Lobby'}</button>`;
+  else if (R.st === 'live' && Date.now() < R.start) html = `<span>🚦 <b>Starting in ${Math.ceil((R.start - Date.now()) / 1000)}…</b></span>`;
+  else {
+    const L = standings().filter(r => !r.gone), me = L.findIndex(r => r.pid === pid());
+    const top = L.slice(0, 3).map((r, i) => `<span class="${r.pid === pid() ? 'me' : ''}">${medal(i)} ${esc(r.pid === pid() ? 'You' : r.name)} <b>${money(r.nw)}</b></span>`).join('');
+    const tail = me > 2 ? `<span class="me">${medal(me)} You <b>${money(L[me].nw)}</b></span>` : '';
+    html = `<span class="lb">${R.done ? (me === 0 ? '🏆 ' : '🏁 ') : '🔴 '}${top}${tail}${off}</span><button data-act="room">${R.done ? (RM.info?.next && !R.host ? '🔁 Rematch' : 'Results') : 'Leaderboard'}</button>`;
   }
-  const R = S.room;
-  let rows = null;
-  if (SB) { const { data } = await SB.from('room_scores').select('pid,name,nw,day,t,done').eq('room', R.code); rows = data; }
-  // Days race: richest wins. Net-worth race: finishers by time, then everyone else by net worth.
-  rows?.sort((a, b) => R.days ? b.nw - a.nw : (b.done - a.done) || (a.done ? a.t - b.t : b.nw - a.nw));
-  const me = pid(), line = r => R.days ? `${money(r.nw)}${r.done ? '' : ` <small>(Day ${r.day})</small>`}` : r.done ? `🏁 ${raceTime(r.t)}` : `${money(r.nw)} <small>(Day ${r.day})</small>`;
-  const board = rows ? `<ol class="plain">${rows.map(r => `<li class="${r.pid === me ? 'me' : ''}">${esc(r.name)}: <b>${line(r)}</b></li>`).join('') || '<li class="muted">No scores yet</li>'}</ol>`
-    : '<p class="muted">Couldn\'t load the leaderboard. Check your internet and tap Refresh.</p>';
-  modal(`<h2>${R.done ? '🏆 You finished!' : '🏁 Room ' + R.code}</h2><p>Room <b>${R.code}</b>: ${goalText(R)}</p>
-    ${R.done ? `<p class="big">${R.days ? `Final net worth <b>${money(R.nw)}</b>` : `Reached ${money(R.goal)} at <b>${raceTime(R.at)}</b>`}</p>` : ''}
-    <h3>🏆 Leaderboard</h3>${board}`, [
-    { label: '🔄 Refresh', fn: () => { setTimeout(showRoom, 0); } },
-    { label: '📋 Invite', fn: () => { copyInvite(); return false; } },
-    R.done ? { label: '🏁 New room', fn: () => { setTimeout(() => showRoom(''), 0); } } : { label: 'Close', cls: 'primary' }]);
+  if (bar._h !== html) bar.innerHTML = bar._h = html;
 }
 
 // ---------- sound ----------
@@ -814,7 +1026,7 @@ function showHelp() {
     <li>🏪 Use profits to buy <b>businesses</b>. They pay you every night, depending on the market mood.</li>
     <li>🔓 Unlocks: 🐻 Shorting at ${money(UNLOCK.short)} · ⚡ Leverage at ${money(UNLOCK.lev)} · 📈📉 Options at ${money(UNLOCK.opt)}</li>
     <li>🕵️ Buy shady tips, apply for 🔔 IPOs, take risky 🃏 life events, and beat 3 rivals.</li>
-    <li>🏁 <b>Play with friends:</b> tap 🏁 Friends to start a room. Everyone gets the same market. Pick a day limit or a money target.</li>
+    <li>🏁 <b>Play with friends:</b> tap 🏁 Friends, create a room and share the code. Friends show up in the lobby; the host hits Start and everyone trades the same live market, with a live leaderboard on top. Your own game is saved and comes back when you leave.</li>
     <li>⌨️ <b>Space</b> pause · <b>B</b> buy · <b>S</b> sell · <b>1/2/3</b> speed · <b>↑↓</b> switch stock</li>
   </ul>`, [{ label: '🚀 Let\'s go!', cls: 'primary' }]);
 }
@@ -896,14 +1108,16 @@ function select(sym) {
   const c = MAP[sym]; if (!c) return;
   S.ui.sel = sym;
   if (window.matchMedia('(max-width: 900px)').matches) setMob('pChart');
-  buildTrade();
-  if (series) {
-    series.setData(c.candles.concat([c.cur]).map(k => ({ time: (k[0] + T0) * 900, open: k[1], high: k[2], low: k[3], close: k[4] })));
-    const n = c.candles.length + 1;
-    chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 90), to: n + 3 });
-    chartSym = sym; updateEntryLine();
-  }
+  buildTrade(); loadChart();
   render(true);
+}
+function loadChart() {
+  const c = MAP[S.ui.sel];
+  if (!series || !c) return;
+  series.setData(c.candles.concat([c.cur]).map(k => ({ time: (k[0] + T0) * 900, open: k[1], high: k[2], low: k[3], close: k[4] })));
+  const n = c.candles.length + 1;
+  chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, n - 90), to: n + 3 });
+  chartSym = c.sym; updateEntryLine();
 }
 function updateEntryLine() {
   if (!series) return;
@@ -960,8 +1174,10 @@ function render(force) {
   $('#ipoBtn').hidden = !S.ipo;
   if (S.ipo) $('#ipoBtn').textContent = `🔔 IPO: ${S.ipo.def.name}`;
   $('#sndBtn').textContent = S.sound ? '🔊' : '🔇';
-  const RM = S.room;
-  $('#roomBtn').textContent = !RM ? '🏁 Friends' : RM.done ? '🏆 Results' : RM.days ? `🏁 Day ${Math.min(d, RM.goal)}/${RM.goal}` : `🏁 ${Math.min(99, nw / RM.goal * 100 | 0)}% to ${money(RM.goal)}`;
+  const Rm = S.room;
+  $('#roomBtn').textContent = !Rm ? '🏁 Friends' : Rm.st === 'lobby' ? '🏁 Lobby' : Rm.done ? '🏆 Results' : Rm.days ? `🏁 Day ${Math.min(d, Rm.goal)}/${Rm.goal}` : `🏁 ${Math.min(99, nw / Rm.goal * 100 | 0)}% to ${money(Rm.goal)}`;
+  $('.speed').hidden = !!Rm; // rooms run on a shared clock
+  roomBar();
   document.querySelectorAll('[data-act^="speed:"]').forEach(b => b.classList.toggle('on', S.paused ? b.dataset.act === 'speed:0' : b.dataset.act === 'speed:' + S.speed));
   document.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('on', b.dataset.sort === S.ui.sort));
   $('#wChip').classList.toggle('on', !!S.ui.watch);
@@ -1181,15 +1397,18 @@ const ACTIONS = {
   bizBuy: id => { const D = BDEF[id]; if (S.biz.some(x => x.id === id)) return; if (S.cash < D.cost) return err('Not enough cash'); S.cash -= D.cost; S.biz.push({ id, lvl: 1, inv: D.cost, yday: 0 }); toast(`${D.em} You now own a <b>${D.name}</b>! Income arrives at day close.`, 'good'); SND.win(); after(); },
   bizUp: id => { const b = S.biz.find(x => x.id === id); if (!b || b.lvl >= 5) return; const cost = bizUpCost(b); if (S.cash < cost) return err('Not enough cash'); S.cash -= cost; b.inv += cost; b.lvl++; toast(`${BDEF[id].em} ${BDEF[id].name} upgraded to level ${b.lvl}!`, 'good'); SND.buy(); after(); },
   bizSell: id => { const i = S.biz.findIndex(x => x.id === id), b = S.biz[i], v = bizValue(b); S.cash += v; S.biz.splice(i, 1); toast(`Sold ${BDEF[id].name} for ${money(v)}`, 'info'); after(); },
-  speed: v => { v = +v; if (v === 0) S.paused = !S.paused; else { S.speed = v; S.paused = false; } render(); },
+  speed: v => { if (S.room) return toast('🏁 Room games run live for everyone, so there\'s no pause or speed-up.', 'info'); v = +v; if (v === 0) S.paused = !S.paused; else { S.speed = v; S.paused = false; } render(); },
   tip: () => buyTip(),
   ipo: () => showIPO(),
   snd: () => { S.sound = !S.sound; render(); },
   theme: () => { S.ui.theme = S.ui.theme === 'light' ? 'dark' : 'light'; applyTheme(); },
   help: () => showHelp(),
   room: () => showRoom(),
+  invite: () => copyInvite(),
+  kick: p => kick(p),
+  rejoin: () => { const n = RM.info?.next; if (!n) return; if (modalBtns) closeModal(); joinRoom(n, S.room.name); },
   cloud: () => showLogin(),
-  reset: () => modal('<h2>🔄 Start a new run?</h2><p>This wipes your current game: cash, stocks, businesses and trophies.</p>',
+  reset: () => S.room ? quitRoom() : modal('<h2>🔄 Start a new run?</h2><p>This wipes your current game: cash, stocks, businesses and trophies.</p>',
     [{ label: '🔥 Yes, start over', cls: 'sellbtn', fn: () => { localStorage.removeItem(SAVE_KEY); newGame(); buildUI(); select(S.ui.sel); } }, { label: 'Cancel', cls: 'primary' }]),
 };
 function after() { lastTabKey = ''; checkAch(); updateEntryLine(); render(true); }
@@ -1221,10 +1440,10 @@ function bindInput() {
     if (modalBtns) { if (e.key === 'Enter') { e.preventDefault(); ($('#modalBox .primary') || $('#modalBox [data-mi]'))?.click(); } return; }
     if (e.target.matches('input, select')) return;
     const k = e.key.toLowerCase();
-    if (k === ' ') { e.preventDefault(); ACTIONS.speed(0); }
+    if (k === ' ' && !S.room) { e.preventDefault(); ACTIONS.speed(0); }
     else if (k === 'b') ACTIONS.buy();
     else if (k === 's') ACTIONS.sell();
-    else if (k === '1' || k === '2' || k === '3') ACTIONS.speed([1, 2, 4][+k - 1]);
+    else if ((k === '1' || k === '2' || k === '3') && !S.room) ACTIONS.speed([1, 2, 4][+k - 1]);
     else if (k === 'arrowdown' || k === 'arrowup') {
       e.preventDefault();
       const rows = [...$('#list').children].filter(r => !r.hidden), i = rows.findIndex(r => r.dataset.act === 'sel:' + S.ui.sel);
@@ -1270,16 +1489,20 @@ function boot() {
   if (fresh) newGame();
   S.ui.theme ??= matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   if (S.ui.tab === 'news' || S.ui.tab === 'port') S.ui.tab = 'live';
+  if (S.room && !S.room.st) { S.room = null; S.rs = null; } // rooms from before the lobby update carry on as a solo game
   if (location.search.includes('test')) selfTest();
   buildUI(); bindInput(); select(S.ui.sel); setMob(S.ui.m);
   $('#fWatch').classList.toggle('on', S.ui.watch);
   const link = new URLSearchParams(location.search).get('room');
   if (link && link.toUpperCase() !== S.room?.code) showRoom(link);
+  else if (S.room) { history.replaceState(null, '', '?room=' + S.room.code); if (S.room.st === 'lobby') showLobby(); }
   else if (fresh) showHelp();
+  roomPoll();
   cloudInit();
   setInterval(() => {
-    if (S.paused || modalBtns || S.room?.done) return;
-    for (let i = 0; i < S.speed && !modalBtns; i++) tick();
+    if (S.room) roomTick();
+    else if (S.paused || modalBtns) return;
+    else for (let i = 0; i < S.speed && !modalBtns; i++) tick();
     const c = MAP[S.ui.sel];
     if (series && chartSym === c.sym) { const k = c.cur; series.update({ time: (k[0] + T0) * 900, open: k[1], high: k[2], low: k[3], close: k[4] }); }
   }, 250);
