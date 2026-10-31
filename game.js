@@ -82,7 +82,7 @@ function pregen(c) {
 
 function newGame(room) {
   S = {
-    v: 1, t: 0, room, rs: room ? seeded(room.code)() * 4294967296 | 0 : null, cash: START_CASH, comps: [], pos: {}, opts: [], biz: [], news: [], sched: [], payouts: [],
+    v: 1, t: 0, room, rs: room ? seeded(room.code)() * 4294967296 | 0 : null, cash: START_CASH, comps: [], pos: {}, opts: [], biz: [], news: [], sched: [], payouts: [], lifeLog: [],
     regime: { k: 'bull', until: 3, next: null }, secTrend: {}, flags: {}, ach: {}, nid: 0, peak: START_CASH,
     rivals: RIVALS.map(r => ({ name: r.name, em: r.em, nw: START_CASH, prev: START_CASH })),
     stats: { trades: 0, wins: 0, losses: 0, best: 0, worst: 0, biz: 0, tips: 0, liq: 0 },
@@ -459,7 +459,8 @@ function dayEnd(d) {
   for (const o of S.opts.filter(o => o.exp <= d)) exerciseOpt(o.id);
   const pays = S.payouts.filter(p => p.d <= d);
   S.payouts = S.payouts.filter(p => p.d > d);
-  for (const p of pays) S.cash += p.amt;
+  for (const p of pays) { S.cash += p.amt; S.lifeLog.unshift({ ...p, d }); }
+  S.lifeLog.length = Math.min(S.lifeLog.length, 20);
   const R = REGIMES[S.regime.k];
   for (const [i, r] of S.rivals.entries()) {
     const def = RIVALS[i];
@@ -551,7 +552,7 @@ function showCard() {
   modal(`<h2>🃏 Life Event</h2><p class="big">${esc(C.q.replace('{amt}', money(amt)))}</p>`, [
     { label: `✅ Yes (${money(amt)})`, cls: 'primary', fn: () => {
       S.cash -= amt;
-      S.payouts.push({ d: day() + C.d - 1, amt: win ? Math.round(amt * C.x) : 0, msg, win, q: C.q.replace('{amt}', money(amt)) });
+      S.payouts.push({ d: day() + C.d - 1, cost: amt, amt: win ? Math.round(amt * C.x) : 0, msg, win, q: C.q.replace('{amt}', money(amt)) });
       toast(`🃏 Done. You'll find out on Day ${day() + C.d - 1}'s close...`, 'info');
     } },
     { label: '❌ No way' }]);
@@ -746,7 +747,7 @@ const SND = {
 function toast(html, kind = '') {
   if (quiet) return;
   const t = document.createElement('div');
-  t.className = 'toast ' + kind; t.innerHTML = html;
+  t.className = 'toast ' + kind; t.innerHTML = html; t.onclick = () => t.remove();
   const box = $('#toasts'); box.prepend(t);
   while (box.children.length > 5) box.lastChild.remove();
   setTimeout(() => t.remove(), 4000);
@@ -836,7 +837,7 @@ function buildUI() {
       timeScale: { timeVisible: true, borderColor: '#26324a', tickMarkFormatter: t => gLabel(t), rightOffset: 4 },
       rightPriceScale: { borderColor: '#26324a' },
       localization: { timeFormatter: t => gLabel(t), priceFormatter: p => '₹' + p.toFixed(2) },
-      crosshair: { mode: 0 },
+      crosshair: { mode: 1, ...(matchMedia('(pointer: coarse)').matches && { vertLine: { visible: false, labelVisible: false }, horzLine: { visible: false, labelVisible: false } }) },
     });
     series = chart.addCandlestickSeries({ upColor: '#00e676', downColor: '#ff3d57', borderVisible: false, wickUpColor: '#00e676', wickDownColor: '#ff3d57' });
   } else if (!chart) $('#chart').innerHTML = '<p class="muted pad">Chart library failed to load (offline?). Trading still works.</p>';
@@ -886,6 +887,7 @@ function applyFilter() {
   const chg = c => c.p / c.open - 1;
   const sorters = { move: (a, b) => Math.abs(chg(b)) - Math.abs(chg(a)), gain: (a, b) => chg(b) - chg(a), lose: (a, b) => chg(a) - chg(b), vol: (a, b) => b.volu - a.volu, az: (a, b) => a.sym.localeCompare(b.sym), price: (a, b) => b.p - a.p };
   vis.sort(sorters[S.ui.sort]);
+  if (matchMedia('(max-width: 600px)').matches) { const pin = c => held(c.sym) ? 2 : S.watch.includes(c.sym) ? 1 : 0; vis.sort((a, b) => pin(b) - pin(a)); }
   const L = $('#list'), set = new Set(vis);
   for (const c of S.comps) c._row.hidden = !set.has(c);
   for (const c of vis) L.appendChild(c._row);
@@ -929,6 +931,7 @@ function buildTrade() {
     <div class="btns">
       <button class="big buy" data-act="buy">▲ BUY</button>
       <button class="big sell" data-act="sell">▼ SELL</button>
+      <button class="big closeAll" data-act="closeAll" title="Close every position in this stock">✕ ALL</button>
       <button class="big short" data-act="short" ${sh ? '' : `disabled title="Unlocks at ${money(UNLOCK.short)}"`}>🐻 SHORT${sh ? '' : ' 🔒'}</button>
       <button class="big cover" data-act="cover" ${sh ? '' : 'disabled'}>✓ COVER${sh ? '' : ' 🔒'}</button>
     </div>
@@ -1088,7 +1091,8 @@ function portHTML() {
   return `<div class="secHead"><b>💼 Portfolio · ${ps.length} position${ps.length === 1 ? '' : 's'}</b>${S.biz.length ? `<small>🏪 Businesses ${money(bv)}</small>` : ''}</div>
     <div class="psum"><div><small>Holdings</small><b>${money(val)}</b></div><div><small>Unrealised P&L</small><b class="${cls(val - inv)}">${money(val - inv)}</b></div><div><small>Cash</small><b>${money(S.cash)}</b></div></div>
     ${S.ipo?.applied ? `<p class="small">🔔 IPO application: <b>${money(S.ipo.applied)}</b> in ${esc(S.ipo.def.name)} (lists Day ${S.ipo.list})</p>` : ''}
-    ${S.payouts.length ? `<p class="small">🃏 Pending life events: ${S.payouts.map(p => `Day ${p.d}`).join(', ')}</p>` : ''}
+    ${S.payouts.length || S.lifeLog.length ? `<h3 class="small">🃏 Life events</h3>${S.payouts.map(p => `<div class="life"><span>${esc(p.q)}</span><small>${p.cost ? money(p.cost) + ' · ' : ''}result Day ${p.d}</small></div>`).join('')}
+      ${S.lifeLog.map(p => `<div class="life ${p.win ? 'up' : 'dn'}"><span>${esc(p.q)}</span><small>${p.cost ? money(p.cost) + ' → ' : ''}<b>${money(p.amt)}</b>${p.cost ? ` (${money(p.amt - p.cost)})` : ''} · Day ${p.d}</small></div>`).join('')}` : ''}
     ${ps.map(([k, p]) => posLine(k, p)).join('') || '<p class="muted small empty">No positions yet. Pick a stock and hit ▲ BUY.</p>'}
     ${S.opts.map(optLine).join('')}`;
 }
@@ -1173,6 +1177,8 @@ const ACTIONS = {
   short: () => { if (openPos(S.ui.sel, -1, S.ui.lev, qtyVal(), +$('#sl').value, +$('#tp').value)) after(); },
   sell: () => { const k = posFor(1); if (!k) return err(`You don't own ${S.ui.sel}.`); closePos(k, qtyVal() || S.pos[k].qty); after(); },
   cover: () => { const k = posFor(-1); if (!k) return err(`No short on ${S.ui.sel}.`); closePos(k, qtyVal() || S.pos[k].qty); after(); },
+  closeAll: () => { const ks = Object.keys(S.pos).filter(k => S.pos[k].sym === S.ui.sel); if (!ks.length) return err(`You don't own ${S.ui.sel}.`); ks.forEach(k => closePos(k, S.pos[k].qty)); after(); },
+  recenter: () => { if (chart) { chart.timeScale().scrollToRealTime(); chart.priceScale('right').applyOptions({ autoScale: true }); } },
   close: k => { if (S.pos[k]) closePos(k, S.pos[k].qty); after(); },
   closeSym: sym => { const ks = Object.keys(S.pos).filter(k => S.pos[k].sym === sym); if (!ks.length) return; for (const k of ks) closePos(k, S.pos[k].qty); after(); },
   half: k => { const p = S.pos[k]; if (p) closePos(k, Math.max(1, Math.floor(p.qty / 2))); after(); },
@@ -1194,7 +1200,21 @@ const ACTIONS = {
 };
 function after() { lastTabKey = ''; checkAch(); updateEntryLine(); render(true); }
 
+function stepStock(dir) {
+  const rows = [...$('#list').children].filter(r => !r.hidden), i = rows.findIndex(r => r.dataset.act === 'sel:' + S.ui.sel);
+  const n = rows[clamp(i + dir, 0, rows.length - 1)];
+  if (n) { select(n.dataset.act.slice(4)); n.scrollIntoView({ block: 'nearest' }); }
+}
+
 function bindInput() {
+  // swipe the stock header left/right to switch stocks (owned ones come first on phone)
+  let sx = null, sy = 0;
+  $('#coHead').addEventListener('touchstart', e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+  $('#coHead').addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (sx !== null && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 2) stepStock(dx < 0 ? 1 : -1);
+    sx = null;
+  });
   document.addEventListener('pointerdown', e => { if (e.target.closest('#tabBody, #myPos, #list')) mouseDown = true; });
   document.addEventListener('pointerup', () => setTimeout(() => { mouseDown = false; }, 0));
   document.addEventListener('click', e => {
@@ -1226,10 +1246,7 @@ function bindInput() {
     else if (k === 's') ACTIONS.sell();
     else if (k === '1' || k === '2' || k === '3') ACTIONS.speed([1, 2, 4][+k - 1]);
     else if (k === 'arrowdown' || k === 'arrowup') {
-      e.preventDefault();
-      const rows = [...$('#list').children].filter(r => !r.hidden), i = rows.findIndex(r => r.dataset.act === 'sel:' + S.ui.sel);
-      const n = rows[clamp(i + (k === 'arrowdown' ? 1 : -1), 0, rows.length - 1)];
-      if (n) { select(n.dataset.act.slice(4)); n.scrollIntoView({ block: 'nearest' }); }
+      e.preventDefault(); stepStock(k === 'arrowdown' ? 1 : -1);
     }
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
@@ -1268,6 +1285,7 @@ function selfTest() {
 function boot() {
   const fresh = !load();
   if (fresh) newGame();
+  S.lifeLog ??= [];
   S.ui.theme ??= matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   if (S.ui.tab === 'news' || S.ui.tab === 'port') S.ui.tab = 'live';
   if (location.search.includes('test')) selfTest();

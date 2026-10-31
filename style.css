@@ -100,14 +100,18 @@ main { flex: 1; display: grid; grid-template-columns: 360px minmax(0, 1fr) 400px
 .coTitle { display: flex; gap: 12px; align-items: center; } .coEm { font-size: 38px; }
 .coTitle h2 { font-size: 22px; margin: 0 0 2px; } .coTitle h2 small { font-size: 14px; font-weight: 600; } .coTitle .chip { margin-left: 4px; }
 .coPx { text-align: right; } .coPx b { font-size: 30px; display: block; letter-spacing: -.01em; } .coPx span { font-size: 16px; font-weight: 700; }
-#chart { height: 340px; margin: 12px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+#chart { position: relative; height: 340px; margin: 12px 0; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+#recenter { position: absolute; left: 8px; bottom: 34px; z-index: 3; padding: 3px 8px; font-size: 12px; opacity: .85; }
+button.closeAll { padding: 12px 10px; color: var(--dn); border-color: var(--dn); }
+.life { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; padding: 5px 8px; margin-top: 4px; border-radius: 8px; background: var(--card); border-left: 3px solid var(--line); }
+.life.up { border-left-color: var(--up); } .life.dn { border-left-color: var(--dn); } .life small { white-space: nowrap; color: var(--muted); }
 #trade { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
 .tRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 9px; }
 .tRow label { font-weight: 600; color: var(--muted); font-size: 13px; margin-left: 4px; }
 #qty { width: 110px; font-size: 17px; font-weight: 700; } .sm { width: 64px; }
 .lev.on { background: var(--gold); color: #1a1200; border-color: var(--gold); }
 .est { font-size: 13px; margin-bottom: 10px; color: var(--muted); } .est b { color: var(--text); }
-.btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.btns { display: grid; grid-template-columns: 1fr 1fr auto 1fr 1fr; gap: 8px; }
 .btns.opt { grid-template-columns: 1fr 1fr auto; margin-top: 8px; align-items: center; }
 button.big { padding: 12px 6px; font-size: 16px; font-weight: 800; border-radius: 10px; letter-spacing: .02em; }
 .buy, .call { background: var(--up); color: var(--onUp); border-color: var(--up); }
@@ -219,7 +223,7 @@ body.paused .clock::after { content: " ⏸ PAUSED"; color: var(--warn); font-wei
   body[data-m="pChart"] #pMarket, body[data-m="pChart"] #pSide,
   body[data-m="pSide"] #pMarket, body[data-m="pSide"] #pChart { display: none; }
   #chart { height: 240px; }
-  .btns { grid-template-columns: 1fr 1fr; }
+  .btns { grid-template-columns: 1fr 1fr auto; }
   #mobNav { display: flex; position: fixed; bottom: 0; left: 0; right: 0; background: var(--header); border-top: 1px solid var(--line); padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); gap: 6px; z-index: 30; }
   #mobNav button { flex: 1; padding: 10px 4px; }
   #breaking { top: 60px; font-size: 17px; }
@@ -241,7 +245,10 @@ body.paused .clock::after { content: " ⏸ PAUSED"; color: var(--warn); font-wei
   .lev:disabled, .btns .short:disabled, .btns .cover:disabled { display: none; }
   .est { font-size: 12px; margin-bottom: 6px; }
   #mobNav button { padding: 9px 2px; font-size: 14px; white-space: nowrap; }
-  #toasts { top: 6px; bottom: auto; left: 8px; right: 8px; width: auto; pointer-events: none; } .toast { padding: 7px 10px; font-size: 13px; }
+  #toasts { bottom: calc(130px + env(safe-area-inset-bottom)); left: 8px; right: 8px; width: auto; }
+  .toast { padding: 5px 9px; font-size: 12px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .toast:nth-child(n+2) { display: none; } .toast br, .toast small { display: none; }
+  #breaking { top: auto; bottom: calc(160px + env(safe-area-inset-bottom)); font-size: 13px; padding: 6px 10px; border-radius: 10px; } #breaking small { font-size: 9px; }
+  body.dim main { filter: none; }
 }
 
 /* compact controls (all sizes) */
@@ -282,7 +289,7 @@ details.adv { margin-bottom: 6px; } details.about { margin-top: 10px; }
   #trade { border: 0; background: transparent; padding: 4px 0; }
   .tRow button { flex: 1; } #qty { flex: 1.4; width: auto; }
   .est .xtra { display: none; }
-  #trade .btns:not(.opt) { position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom)); z-index: 29; padding: 8px 10px; background: var(--header); border-top: 1px solid var(--line); grid-template-columns: 1fr 1fr; gap: 8px; }
+  #trade .btns:not(.opt) { position: fixed; left: 0; right: 0; bottom: calc(58px + env(safe-area-inset-bottom)); z-index: 29; padding: 8px 10px; background: var(--header); border-top: 1px solid var(--line); grid-template-columns: 1fr 1fr auto; gap: 8px; }
   #trade .btns:not(.opt) .short:not(:disabled), #trade .btns:not(.opt) .cover:not(:disabled) { padding: 8px 4px; font-size: 13px; }
   button.big { padding: 14px 6px; font-size: 17px; }
   #pMarket .listTools { padding: 8px 10px; }
@@ -291,3 +298,11 @@ details.adv { margin-bottom: 6px; } details.about { margin-top: 10px; }
 }
 .qClose { display: none; margin-top: 4px; padding: 3px 10px; font-size: 12px; background: var(--dnbg); color: var(--dn); border-color: var(--dn); }
 .row.own .qClose { display: inline-block; }
+/* phone sideways: chart fills the screen, scroll down to trade */
+@media (max-height: 500px) and (orientation: landscape) {
+  #ticker, #headline, .hRight, .coTitle .muted, .coEm { display: none; }
+  #top { padding: 4px 10px; } #mobNav { padding: 3px 6px calc(3px + env(safe-area-inset-bottom)); } #mobNav button { padding: 5px 4px; }
+  main { padding-top: 0; } #pChart { padding-top: 4px; } .coTitle h2 { font-size: 16px; } .coPx b { font-size: 20px; }
+  #coHead { align-items: center; } .coPx { display: flex; gap: 8px; align-items: baseline; }
+  body[data-m="pChart"] #chart { height: calc(100dvh - 150px); margin: 4px 0; }
+}
