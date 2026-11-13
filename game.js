@@ -143,7 +143,7 @@ function openPos(sym, side, lev, qty, slPct, tpPct) {
   S.stats.trades++;
   if (side > 0 && S.regime.k === 'crash') S.flags.dip = true;
   SND.buy();
-  toast(`${side > 0 ? '🟢 BOUGHT' : '🐻 SHORTED'} ${qty} ${sym} @ ${px(P)}${lev > 1 ? ` (${lev}x)` : ''}`, side > 0 ? 'good' : 'bad');
+  toast(`${side > 0 ? 'Bought' : 'Shorted'} ${qty} ${sym}`, side > 0 ? 'good' : 'bad', `@ ${px(P)}${lev > 1 ? ` · ${lev}x` : ''} · ${money(margin + fee)}`, side > 0 ? '▲' : '▼');
   return true;
 }
 
@@ -164,8 +164,8 @@ function closePos(key, qty, reason) {
   if (pnl < 0 && S.t - p.t < 20) S.flags.paper = true;
   if (pnl > 0 && p.minPct <= -0.2) S.flags.diamond = true;
   if (pnl > 0 && p.side < 0) S.flags.short = true;
-  const verb = reason || (p.side > 0 ? '🔴 SOLD' : '✅ COVERED');
-  toast(`${verb} ${qty} ${p.sym} @ ${px(c.p)} · P&L <b class="${cls(pnl)}">${money(pnl)}</b>`, pnl >= 0 ? 'good' : 'bad');
+  const verb = reason || (p.side > 0 ? 'Sold' : 'Covered');
+  toast(`${verb} ${qty} ${p.sym}`, pnl >= 0 ? 'good' : 'bad', `@ ${px(c.p)} · P&L <b class="${cls(pnl)}">${pnl >= 0 ? '+' : ''}${money(pnl)}</b>`, reason ? undefined : pnl >= 0 ? '✓' : '▼');
   if (pnl > 0) { SND.win(); if (pnl >= m) confetti(); } else SND.lose();
   return pnl;
 }
@@ -179,7 +179,7 @@ function buyOpt(sym, type, qty) {
   S.cash -= prem;
   S.opts.push({ id: ++S.nid, sym, type, K: c.p, qty, prem, exp: day() + 2 });
   S.stats.trades++; SND.buy();
-  toast(`${type > 0 ? '📈 CALL' : '📉 PUT'} on ${qty} ${sym} @ strike ${px(c.p)} · paid ${money(prem)}`, 'good');
+  toast(`${type > 0 ? '📈 Call' : '📉 Put'} on ${qty} ${sym}`, 'good', `Strike ${px(c.p)} · paid ${money(prem)}`);
   return true;
 }
 function exerciseOpt(id) {
@@ -188,7 +188,7 @@ function exerciseOpt(id) {
   S.cash += v; S.opts.splice(i, 1);
   if (S.dayLog) S.dayLog.trades.push({ sym: o.sym + (o.type > 0 ? ' CALL' : ' PUT'), pnl });
   S.stats.best = Math.max(S.stats.best, pnl); S.stats.worst = Math.min(S.stats.worst, pnl);
-  toast(`${o.type > 0 ? '📈' : '📉'} Option on ${o.sym} settled: ${money(v)} (P&L <b class="${cls(pnl)}">${money(pnl)}</b>)`, pnl >= 0 ? 'good' : 'bad');
+  toast(`${o.type > 0 ? '📈' : '📉'} Option on ${o.sym} settled`, pnl >= 0 ? 'good' : 'bad', `${money(v)} · P&L <b class="${cls(pnl)}">${money(pnl)}</b>`);
   pnl > 0 ? SND.win() : SND.lose();
 }
 
@@ -359,14 +359,14 @@ function checkPositions() {
     p.minPct = Math.min(p.minPct, v / p.margin - 1);
     const risky = p.lev > 1 || p.side < 0;
     if (risky && v <= p.margin * 0.1) {
-      closePos(k, p.qty, '💀 LIQUIDATED');
+      closePos(k, p.qty, '💀 Liquidated');
       S.flags.rekt = true; S.stats.liq++;
       if (!quiet) { breaking(`MARGIN CALL! Your ${p.lev}x ${p.side > 0 ? 'long' : 'short'} on ${p.sym} got liquidated 💀`, -1); shake(); }
       continue;
     }
     if (risky && v < p.margin * 0.45) warn = true;
-    if (p.sl && (p.side > 0 ? c.p <= p.sl : c.p >= p.sl)) { closePos(k, p.qty, '🛑 Stop-loss hit:'); continue; }
-    if (p.tp && (p.side > 0 ? c.p >= p.tp : c.p <= p.tp)) closePos(k, p.qty, '🎯 Take-profit hit:');
+    if (p.sl && (p.side > 0 ? c.p <= p.sl : c.p >= p.sl)) { closePos(k, p.qty, '🛑 Stop-loss sold'); continue; }
+    if (p.tp && (p.side > 0 ? c.p >= p.tp : c.p <= p.tp)) closePos(k, p.qty, '🎯 Target hit, sold');
   }
   S.warn = warn;
   if (warn && S.t % 6 === 0) SND.heart();
@@ -585,7 +585,7 @@ function checkAch() {
   for (const [id, name, desc, fn] of ACH) {
     if (S.ach[id] || !fn()) continue;
     S.ach[id] = day();
-    if (!quiet) { toast(`🎖️ ACHIEVEMENT: <b>${name}</b><br><small>${desc}</small>`, 'ach'); SND.win(); confetti(); }
+    if (!quiet) { toast(`Achievement: ${name}`, 'ach', esc(desc), '🎖️'); SND.win(); confetti(); }
   }
   const t = titleFor(S.peak);
   if (S.title && S.title !== t && !quiet) { toast(`⬆️ PROMOTED to <b>${t}</b>!`, 'ach'); confetti(); }
@@ -653,7 +653,7 @@ function cloudInit() {
 const GOALS = [['5D', '⏱️ 5 days, richest wins'], ['10D', '⏱️ 10 days, richest wins'], ['20D', '⏱️ 20 days, richest wins'],
   ['10L', '🎯 First to ₹10 L'], ['1CR', '🎯 First to ₹1 Cr'], ['10CR', '🎯 First to ₹10 Cr']];
 const ROOM_WORDS = ['TIGER', 'MANGO', 'CHAI', 'ROCKET', 'BULL', 'BEAR', 'DIWALI', 'MASALA', 'BHAI', 'STONK'];
-const PID_KEY = 'quickstock-pid', NAME_KEY = 'quickstock-name';
+const PID_KEY = 'quickstock-pid', NAME_KEY = 'quickstock-name', SOLO_KEY = 'quickstock-solo';
 function parseRoom(code) {
   const m = /^[A-Z0-9]{2,12}-(\d{1,3})(D|L|CR)$/.exec(code.trim().toUpperCase());
   if (!m || +m[1] < 1) return null;
@@ -667,23 +667,76 @@ const raceTime = t => `Day ${Math.floor(t / TPD) + 1} ${clock(t)}`;
 function roomPush() {
   if (!SB || !S.room || quiet) return;
   const R = S.room;
-  SB.from('room_scores').upsert({ room: R.code, pid: pid(), name: R.name, nw: Math.round(netWorth()), day: day(), t: S.t, done: !!R.done, updated_at: new Date().toISOString() })
+  return SB.from('room_scores').upsert({ room: R.code, pid: pid(), name: R.name, nw: Math.round(netWorth()), day: day(), t: R.lobby ? -1 : S.t, done: !!R.done, updated_at: new Date().toISOString() })
     .then(({ error }) => error && console.warn('room score', error));
 }
+async function roomRows() {
+  if (!SB || !S.room) return null;
+  const { data, error } = await SB.from('room_scores').select('pid,name,nw,day,t,done').eq('room', S.room.code);
+  return error ? null : data;
+}
+// One poller at a time; it stops by itself once its modal is gone.
+let roomTm = 0, roomFn = null;
+const roomShown = () => document.getElementById('roomLive') || modalQ.some(([h]) => h.includes('roomLive')); // open, or queued behind another modal
+function roomPoll(fn, ms) { clearInterval(roomTm); roomFn = fn; roomTm = setInterval(() => roomShown() ? fn() : clearInterval(roomTm), ms); fn(); }
 function roomFinish() {
   S.room.done = true; S.room.at = S.t; S.room.nw = netWorth();
   save(); roomPush(); confetti(); SND.win();
   setTimeout(showRoom, 800); // give the score a moment to land before the leaderboard loads
 }
-function startRoom(r, name) {
+function startRoom(r, name, host) { // sync checks so a bad form stays open
   if (!r) return err('That room code looks wrong. It should look like TIGER42-10D'), false;
   name = name.trim().slice(0, 16);
   if (!name) return err('Enter your name so friends know who you are'), false;
   localStorage.setItem(NAME_KEY, name);
+  enterRoom(r, name, host);
+}
+async function enterRoom(r, name, host) {
+  if (!S.room) { save(); localStorage.setItem(SOLO_KEY, localStorage.getItem(SAVE_KEY)); } // keep the solo game for later
   history.replaceState(null, '', '?room=' + r.code);
-  newGame({ ...r, name }); buildUI(); select(S.ui.sel); save(); roomPush();
-  modal(`<h2>🏁 Room ${r.code}</h2><p class="big">${goalText(r)}</p><p>Everyone in this room gets the <b>same market</b>: same prices, news and IPOs. Send this code to your friends:</p>
-    <p class="big"><b>${r.code}</b></p>`, [{ label: '📋 Copy invite link', fn: () => { copyInvite(); return false; } }, { label: '🚀 Start trading', cls: 'primary' }]);
+  newGame({ ...r, name, host, lobby: true }); buildUI(); select(S.ui.sel);
+  // Joining a room that already started: skip the lobby and go straight in.
+  if (!host && (await roomRows())?.some(x => x.t >= 0)) return roomGo();
+  save(); roomPush(); showLobby();
+}
+function roomGo(clicked) {
+  if (!S.room?.lobby) return;
+  S.room.lobby = false; S.paused = false;
+  save(); roomPush();
+  if (!clicked && modalBtns && $('#roomLive')) closeModal(); // the Start button closes its own modal
+  toast(`Room ${S.room.code} is live. ${goalText(S.room)}`, 'good', 'Same market for everyone. Good luck!', '🏁');
+  SND.bell();
+}
+const avatar = n => esc(n.trim()[0]?.toUpperCase() || '?');
+function showLobby() {
+  const R = S.room;
+  modal(`<h2>🏁 Waiting room</h2><p>${R.host ? 'Share the code, wait for friends to join, then start.' : 'You\'re in! The game starts when the room creator taps Start.'}</p>
+    <div class="codeBox"><div><small>Room code</small><br><b>${R.code}</b></div><span class="chip">${goalText(R)}</span></div>
+    <h3>Players</h3><div id="roomLive" class="lobby"><p class="muted small">Loading players<span class="dots"></span></p></div>
+    ${R.host ? '' : `<p class="muted small">Waiting for the host<span class="dots"></span></p>`}`, [
+    { label: '📋 Invite', fn: () => { copyInvite(); return false; } },
+    { label: '🚪 Leave', fn: () => leaveRoom() },
+    ...(R.host || !SB ? [{ label: '🚀 Start game', cls: 'primary', fn: () => { roomGo(true); } }] : [])]);
+  roomPoll(async () => {
+    const rows = await roomRows(), el = $('#roomLive');
+    if (!el || !S.room?.lobby) return;
+    if (!rows) { el.innerHTML = '<p class="muted small">Can\'t reach the server. You can still play; scores sync when you\'re back online.</p>'; return; }
+    if (!R.host && rows.some(x => x.t >= 0)) return roomGo(); // host started
+    const me = pid();
+    el.innerHTML = rows.map(x => `<div class="lp ${x.pid === me ? 'me' : ''}"><span class="av">${avatar(x.name)}</span><b>${esc(x.name)}${x.pid === me ? ' <small>(you)</small>' : ''}</b><span class="lpR"><small>${x.t >= 0 ? 'playing' : 'ready'}</small></span></div>`).join('');
+  }, 2000);
+}
+function leaveRoom() {
+  clearInterval(roomTm);
+  const solo = (() => { try { return JSON.parse(localStorage.getItem(SOLO_KEY)); } catch { return null; } })();
+  localStorage.removeItem(SOLO_KEY);
+  history.replaceState(null, '', location.pathname);
+  const theme = S.ui.theme;
+  if (solo?.v === 1 && !solo.room) { S = solo; buildMap(); }
+  else newGame();
+  S.ui.theme = theme; S.paused = false;
+  save(); buildUI(); select(S.ui.sel);
+  toast('Back to your solo game', 'info', '', '🏠');
 }
 function copyInvite() {
   const url = location.origin + location.pathname + '?room=' + S.room.code;
@@ -691,31 +744,41 @@ function copyInvite() {
   (navigator.share ? navigator.share({ text }) : navigator.clipboard.writeText(text).then(() => toast('📋 Invite copied', 'good'))).catch(() => { });
 }
 
-async function showRoom(code) { // code: undefined = this room's leaderboard, a string = the start/join form
+async function showRoom(code) { // code: undefined = this room's lobby/leaderboard, a string = the start/join form
   if (!S.room || code != null) {
     const name = esc(localStorage.getItem(NAME_KEY) || '');
-    return modal(`<h2>🏁 Play with friends</h2><p class="muted">Everyone in a room gets the same market. Starting or joining a room replaces your current solo game.</p>
+    return modal(`<h2>🏁 Play with friends</h2><p class="muted">Everyone in a room gets the same market. Your solo game is saved and comes back when you leave the room.</p>
       <input id="rName" placeholder="Your name" maxlength="16" value="${name}" style="width:100%;padding:10px;font-size:16px">
       <h3>Start a room</h3><select id="rGoal" style="width:100%;padding:10px;font-size:16px">${GOALS.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
       <h3>Or join a friend</h3><input id="rCode" placeholder="Room code, e.g. TIGER42-10D" value="${esc(code || '')}" style="width:100%;padding:10px;font-size:16px;text-transform:uppercase">`, [
-      { label: '➕ Start room', cls: code ? '' : 'primary', fn: () => startRoom(parseRoom(`${ROOM_WORDS[Math.random() * ROOM_WORDS.length | 0]}${10 + Math.random() * 90 | 0}-${$('#rGoal').value}`), $('#rName').value) },
-      { label: '🤝 Join', cls: code ? 'primary' : '', fn: () => startRoom(parseRoom($('#rCode').value), $('#rName').value) },
+      { label: '➕ Start room', cls: code ? '' : 'primary', fn: () => startRoom(parseRoom(`${ROOM_WORDS[Math.random() * ROOM_WORDS.length | 0]}${10 + Math.random() * 90 | 0}-${$('#rGoal').value}`), $('#rName').value, true) },
+      { label: '🤝 Join', cls: code ? 'primary' : '', fn: () => startRoom(parseRoom($('#rCode').value), $('#rName').value, false) },
       { label: 'Cancel' }]);
   }
   const R = S.room;
-  let rows = null;
-  if (SB) { const { data } = await SB.from('room_scores').select('pid,name,nw,day,t,done').eq('room', R.code); rows = data; }
-  // Days race: richest wins. Net-worth race: finishers by time, then everyone else by net worth.
-  rows?.sort((a, b) => R.days ? b.nw - a.nw : (b.done - a.done) || (a.done ? a.t - b.t : b.nw - a.nw));
-  const me = pid(), line = r => R.days ? `${money(r.nw)}${r.done ? '' : ` <small>(Day ${r.day})</small>`}` : r.done ? `🏁 ${raceTime(r.t)}` : `${money(r.nw)} <small>(Day ${r.day})</small>`;
-  const board = rows ? `<ol class="plain">${rows.map(r => `<li class="${r.pid === me ? 'me' : ''}">${esc(r.name)}: <b>${line(r)}</b></li>`).join('') || '<li class="muted">No scores yet</li>'}</ol>`
-    : '<p class="muted">Couldn\'t load the leaderboard. Check your internet and tap Refresh.</p>';
-  modal(`<h2>${R.done ? '🏆 You finished!' : '🏁 Room ' + R.code}</h2><p>Room <b>${R.code}</b>: ${goalText(R)}</p>
-    ${R.done ? `<p class="big">${R.days ? `Final net worth <b>${money(R.nw)}</b>` : `Reached ${money(R.goal)} at <b>${raceTime(R.at)}</b>`}</p>` : ''}
-    <h3>🏆 Leaderboard</h3>${board}`, [
-    { label: '🔄 Refresh', fn: () => { setTimeout(showRoom, 0); } },
+  if (R.lobby) return showLobby();
+  modal(`<h2>${R.done ? '🏆 Results' : '🏁 Room ' + R.code}</h2><p>Room <b>${R.code}</b>: ${goalText(R)}</p>
+    ${R.done ? `<p class="big">${R.days ? `Your final net worth: <b>${money(R.nw)}</b>` : `You reached ${money(R.goal)} at <b>${raceTime(R.at)}</b>`}</p>` : ''}
+    <h3>🏆 Leaderboard</h3><div id="roomLive" class="lobby"><p class="muted small">Loading<span class="dots"></span></p></div>
+    ${R.done ? '<p class="muted small">The board updates live while friends finish. Your score is saved.</p>' : ''}`, R.done ? [
+    { label: '📋 Share', fn: () => { copyInvite(); return false; } },
+    { label: '🏁 New room', fn: () => { leaveRoom(); setTimeout(() => showRoom(''), 0); } },
+    { label: '🏠 Back to solo game', cls: 'primary', fn: () => leaveRoom() }] : [
     { label: '📋 Invite', fn: () => { copyInvite(); return false; } },
-    R.done ? { label: '🏁 New room', fn: () => { setTimeout(() => showRoom(''), 0); } } : { label: 'Close', cls: 'primary' }]);
+    { label: '🚪 Leave room', fn: () => { setTimeout(() => modal(`<h2>🚪 Leave room ${R.code}?</h2><p>Your score so far stays on the board, but you can't come back to this race.</p>`,
+      [{ label: 'Stay' }, { label: 'Leave', cls: 'sellbtn', fn: () => leaveRoom() }]), 0); } },
+    { label: 'Close', cls: 'primary' }]);
+  roomPoll(async () => {
+    const rows = await roomRows(), el = $('#roomLive');
+    if (!el) return;
+    if (!rows) { el.innerHTML = '<p class="muted small">Couldn\'t load the leaderboard. Check your internet.</p>'; return; }
+    // Days race: richest wins. Net-worth race: finishers by time, then everyone else by net worth.
+    rows.sort((a, b) => ((b.t >= 0) - (a.t >= 0)) || (R.days ? b.nw - a.nw : (b.done - a.done) || (a.done ? a.t - b.t : b.nw - a.nw))); // anyone still in the lobby goes last
+    const me = pid(), medal = i => ['🥇', '🥈', '🥉'][i] || `${i + 1}`;
+    const status = r => r.done ? '🏁 finished' : r.t < 0 ? 'in lobby' : `playing · Day ${r.day}`;
+    const val = r => !R.days && r.done ? raceTime(r.t) : money(r.nw);
+    el.innerHTML = rows.map((r, i) => `<div class="lp ${r.pid === me ? 'me' : ''}"><span class="av">${medal(i)}</span><b>${esc(r.name)}${r.pid === me ? ' <small>(you)</small>' : ''}</b><span class="lpR">${val(r)}<small>${status(r)}</small></span></div>`).join('') || '<p class="muted small">No scores yet</p>';
+  }, 4000);
 }
 
 // ---------- sound ----------
@@ -744,13 +807,18 @@ const SND = {
 };
 
 // ---------- UI: effects ----------
-function toast(html, kind = '') {
+const LEAD_EMOJI = /^(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier})*|\p{Regional_Indicator}{2})\s*/u;
+function toast(html, kind = '', sub = '', icon) {
   if (quiet) return;
+  if (!icon) { const m = LEAD_EMOJI.exec(html); if (m) { icon = m[1]; html = html.slice(m[0].length); } }
   const t = document.createElement('div');
-  t.className = 'toast ' + kind; t.innerHTML = html; t.onclick = () => t.remove();
+  t.className = 'toast ' + kind;
+  t.innerHTML = `<span class="ti">${icon || 'ℹ️'}</span><div class="tt"><div class="tm">${html}</div>${sub ? `<small>${sub}</small>` : ''}</div>`;
+  const out = () => { if (t.classList.contains('out')) return; t.classList.add('out'); setTimeout(() => t.remove(), 300); };
+  t.onclick = out;
   const box = $('#toasts'); box.prepend(t);
-  while (box.children.length > 5) box.lastChild.remove();
-  setTimeout(() => t.remove(), 4000);
+  while (box.children.length > 4) box.lastChild.remove();
+  setTimeout(out, 3800);
 }
 function breaking(text, sent) {
   if (quiet) return;
@@ -778,8 +846,9 @@ function modal(html, btns = [{ label: 'OK', cls: 'primary' }]) {
   modalBtns = btns;
   $('#modalBox').innerHTML = html + `<div class="mBtns">${btns.map((b, i) => `<button class="${b.cls || ''}" data-mi="${i}">${b.label}</button>`).join('')}</div>`;
   $('#modal').hidden = false;
+  if ($('#roomLive')) roomFn?.(); // a queued lobby/leaderboard fills in as soon as it shows
 }
-function closeModal() { $('#modal').hidden = true; modalBtns = null; if (modalQ.length) modal(...modalQ.shift()); }
+function closeModal() { $('#modal').hidden = true; $('#modalBox').innerHTML = ''; modalBtns = null; if (modalQ.length) modal(...modalQ.shift()); }
 function setHeadline(n) {
   const h = $('#headline');
   h.className = cls(n.sent);
@@ -800,7 +869,7 @@ function showRecap(d, log, pays, nw) {
     ${pays.length ? `<h3>🃏 Life events</h3><ul class="plain">${pays.map(p => `<li class="${p.win ? 'up' : 'dn'}">${esc(p.msg)}</li>`).join('')}</ul>` : ''}
     <h3>🏆 Leaderboard</h3><ol class="plain">${all.map(r => `<li class="${r.name === 'YOU' ? 'me' : ''}">${r.em} ${esc(r.name)}: <b>${money(r.nw)}</b></li>`).join('')}</ol>
     <p>Mood: ${REGIMES[S.regime.k].em} <b>${REGIMES[S.regime.k].name}</b>${tomorrow.length ? ` · 📅 Tomorrow: ${tomorrow.map(e => esc(e.label)).join(' · ')}` : ''}</p>`,
-    [{ label: `▶ Start Day ${d + 1} <small>(Enter)</small>`, cls: 'primary' }]);
+    [{ label: S.room?.days && d >= S.room.goal ? '🏆 See results' : `▶ Start Day ${d + 1} <small>(Enter)</small>`, cls: 'primary' }]);
   if (chg > 0) SND.win();
 }
 
@@ -832,7 +901,7 @@ function buildUI() {
   if (window.LightweightCharts && !chart) {
     chart = LightweightCharts.createChart($('#chart'), {
       autoSize: true,
-      layout: { background: { color: '#0d121b' }, textColor: '#c9d4e3', fontSize: 13 },
+      layout: { background: { color: '#0d121b' }, textColor: '#c9d4e3', fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif' },
       grid: { vertLines: { color: '#182131' }, horzLines: { color: '#182131' } },
       timeScale: { timeVisible: true, borderColor: '#26324a', tickMarkFormatter: t => gLabel(t), rightOffset: 4 },
       rightPriceScale: { borderColor: '#26324a' },
@@ -914,32 +983,31 @@ function updateEntryLine() {
   if (p) entryLine = series.createPriceLine({ price: p.entry, color: '#ffd54f', lineWidth: 1, lineStyle: 2, title: `Your avg ${p.side > 0 ? 'long' : 'short'}` });
 }
 
+const LOCKS = [['short', '🐻', 'Short selling'], ['lev', '⚡', 'Leverage 2–10x'], ['opt', '🎯', 'Options']];
 function buildTrade() {
-  const lev = [1, 2, 5, 10].map(l => {
-    const lock = l > 1 && !unlocked('lev');
-    return `<button class="lev ${S.ui.lev === l ? 'on' : ''}" data-act="lev:${l}" ${lock ? `disabled title="Unlocks at ${money(UNLOCK.lev)}"` : ''}>${l}x${lock ? '🔒' : ''}</button>`;
-  }).join('');
-  const sh = unlocked('short');
+  const sh = unlocked('short'), lv = unlocked('lev'), op = unlocked('opt');
+  const lev = [1, 2, 5, 10].map(l => `<button class="lev ${S.ui.lev === l ? 'on' : ''}" data-act="lev:${l}">${l}x</button>`).join('');
+  const locked = LOCKS.filter(([k]) => !unlocked(k));
   $('#trade').innerHTML = `
     <div class="tRow"><label>Qty</label><input id="qty" type="number" min="1" value="${S.ui.qty || 10}">
       <button data-act="qty:1">1</button><button data-act="qty:10">10</button><button data-act="qty:100">100</button><button data-act="qty:max">MAX</button></div>
-    <details class="adv" ${S.ui.adv ? 'open' : ''}><summary>⚙️ Leverage ${S.ui.lev}x · Stop-loss / Target</summary>
-    <div class="tRow"><label>Leverage</label>${lev}</div>
+    <details class="adv" ${S.ui.adv ? 'open' : ''}><summary>⚙️ ${lv ? `Leverage ${S.ui.lev}x · ` : ''}Stop-loss / Target</summary>
+    ${lv ? `<div class="tRow"><label>Leverage</label>${lev}</div>` : ''}
     <div class="tRow"><label title="Auto-sell if price moves against you by this %">🛑 SL%</label><input id="sl" type="number" min="0" placeholder="off" class="sm">
       <label title="Auto-sell when profit reaches this %">🎯 TP%</label><input id="tp" type="number" min="0" placeholder="off" class="sm"></div></details>
     <div class="est" id="est"></div>
-    <div class="btns">
+    <div class="btns ${sh ? '' : 'basic'}">
       <button class="big buy" data-act="buy">▲ BUY</button>
       <button class="big sell" data-act="sell">▼ SELL</button>
       <button class="big closeAll" data-act="closeAll" title="Close every position in this stock">✕ ALL</button>
-      <button class="big short" data-act="short" ${sh ? '' : `disabled title="Unlocks at ${money(UNLOCK.short)}"`}>🐻 SHORT${sh ? '' : ' 🔒'}</button>
-      <button class="big cover" data-act="cover" ${sh ? '' : 'disabled'}>✓ COVER${sh ? '' : ' 🔒'}</button>
+      ${sh ? `<button class="big short" data-act="short">🐻 SHORT</button><button class="big cover" data-act="cover">✓ COVER</button>` : ''}
     </div>
-    ${unlocked('opt') ? `<div class="btns opt"><button class="call" data-act="opt:1">📈 CALL (bet up, 3 days)</button><button class="put" data-act="opt:-1">📉 PUT (bet down, 3 days)</button><span id="prem" class="muted"></span></div>`
-      : `<div class="muted small">📈📉 Options unlock at ${money(UNLOCK.opt)}</div>`}
+    ${op ? `<div class="btns opt"><button class="call" data-act="opt:1">📈 CALL (bet up, 3 days)</button><button class="put" data-act="opt:-1">📉 PUT (bet down, 3 days)</button><span id="prem" class="muted"></span></div>` : ''}
+    ${locked.length ? `<div class="unlocks"><small>🔓 Unlock as your best net worth grows</small><div class="ulGrid">${locked.map(([k, em, name]) => `<div class="ul"><span class="ulEm">${em}</span><div class="ulTx"><div><b>${name}</b><small>${money(UNLOCK[k])}</small></div><div class="ulBar"><i style="width:${Math.min(100, S.peak / UNLOCK[k] * 100).toFixed(1)}%"></i></div></div></div>`).join('')}</div></div>` : ''}
     <div id="myPos"></div>`;
-  S._tradeUnlocks = [unlocked('short'), unlocked('lev'), unlocked('opt')].join();
+  S._tradeUnlocks = tradeKey();
 }
+const tradeKey = () => [unlocked('short'), unlocked('lev'), unlocked('opt'), S.peak | 0].join();
 
 // ---------- UI: render ----------
 function render(force) {
@@ -964,7 +1032,7 @@ function render(force) {
   if (S.ipo) $('#ipoBtn').textContent = `🔔 IPO: ${S.ipo.def.name}`;
   $('#sndBtn').textContent = S.sound ? '🔊' : '🔇';
   const RM = S.room;
-  $('#roomBtn').textContent = !RM ? '🏁 Friends' : RM.done ? '🏆 Results' : RM.days ? `🏁 Day ${Math.min(d, RM.goal)}/${RM.goal}` : `🏁 ${Math.min(99, nw / RM.goal * 100 | 0)}% to ${money(RM.goal)}`;
+  $('#roomBtn').textContent = !RM ? '🏁 Friends' : RM.lobby ? '🏁 Lobby' : RM.done ? '🏆 Results' : RM.days ? `🏁 Day ${Math.min(d, RM.goal)}/${RM.goal}` : `🏁 ${Math.min(99, nw / RM.goal * 100 | 0)}% to ${money(RM.goal)}`;
   document.querySelectorAll('[data-act^="speed:"]').forEach(b => b.classList.toggle('on', S.paused ? b.dataset.act === 'speed:0' : b.dataset.act === 'speed:' + S.speed));
   document.querySelectorAll('[data-sort]').forEach(b => b.classList.toggle('on', b.dataset.sort === S.ui.sort));
   $('#wChip').classList.toggle('on', !!S.ui.watch);
@@ -992,7 +1060,7 @@ function render(force) {
   }
   // company
   if (c) renderCompany(c, force);
-  if (S._tradeUnlocks !== [unlocked('short'), unlocked('lev'), unlocked('opt')].join()) buildTrade();
+  if (S._tradeUnlocks !== tradeKey() && !mouseDown && document.activeElement?.id !== 'qty') buildTrade();
   // side tab
   if (!mouseDown) renderTab();
 }
@@ -1172,7 +1240,7 @@ const ACTIONS = {
     $('#qty').value = v === 'max' ? Math.max(1, Math.floor(S.cash / (c.p / S.ui.lev + c.p * FEE))) : v;
     S.ui.qty = +$('#qty').value; render(true);
   },
-  lev: l => { S.ui.lev = +l; buildTrade(); render(true); },
+  lev: l => { if (!unlocked('lev')) return; S.ui.lev = +l; buildTrade(); render(true); },
   buy: () => { if (openPos(S.ui.sel, 1, S.ui.lev, qtyVal(), +$('#sl').value, +$('#tp').value)) after(); },
   short: () => { if (openPos(S.ui.sel, -1, S.ui.lev, qtyVal(), +$('#sl').value, +$('#tp').value)) after(); },
   sell: () => { const k = posFor(1); if (!k) return err(`You don't own ${S.ui.sel}.`); closePos(k, qtyVal() || S.pos[k].qty); after(); },
@@ -1196,7 +1264,7 @@ const ACTIONS = {
   room: () => showRoom(),
   cloud: () => showLogin(),
   reset: () => modal('<h2>🔄 Start a new run?</h2><p>This wipes your current game: cash, stocks, businesses and trophies.</p>',
-    [{ label: '🔥 Yes, start over', cls: 'sellbtn', fn: () => { localStorage.removeItem(SAVE_KEY); newGame(); buildUI(); select(S.ui.sel); } }, { label: 'Cancel', cls: 'primary' }]),
+    [{ label: '🔥 Yes, start over', cls: 'sellbtn', fn: () => { localStorage.removeItem(SAVE_KEY); localStorage.removeItem(SOLO_KEY); history.replaceState(null, '', location.pathname); newGame(); buildUI(); select(S.ui.sel); save(); } }, { label: 'Cancel', cls: 'primary' }]),
 };
 function after() { lastTabKey = ''; checkAch(); updateEntryLine(); render(true); }
 
@@ -1293,11 +1361,12 @@ function boot() {
   $('#fWatch').classList.toggle('on', S.ui.watch);
   const link = new URLSearchParams(location.search).get('room');
   if (link && link.toUpperCase() !== S.room?.code) showRoom(link);
+  else if (S.room?.lobby || S.room?.done) showRoom();
   else if (fresh) showHelp();
   cloudInit();
   setInterval(() => {
-    if (S.paused || modalBtns || S.room?.done) return;
-    for (let i = 0; i < S.speed && !modalBtns; i++) tick();
+    if (S.paused || modalBtns || S.room?.done || S.room?.lobby) return;
+    for (let i = 0; i < S.speed && !modalBtns && !S.room?.done; i++) tick();
     const c = MAP[S.ui.sel];
     if (series && chartSym === c.sym) { const k = c.cur; series.update({ time: (k[0] + T0) * 900, open: k[1], high: k[2], low: k[3], close: k[4] }); }
   }, 250);
